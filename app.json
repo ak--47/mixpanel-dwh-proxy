@@ -1,0 +1,20 @@
+{
+	"name": "mixpanel-express-proxy",
+	"options": {
+		"allow-unauthenticated": true,
+		"memory": "512Mi",
+		"cpu": "1",
+		"port": 8080,
+		"concurrency": 80
+	},
+	"env": {
+		"WAREHOUSES": {
+            "description": "a comma-separated list of warehouse IDs to proxy to",
+            "required": true
+        },
+        "FRONTEND_URL": {
+            "description": "what is the URL of your frontend? (e.g. https://example.com); type none to use generic",
+			"required": true
+        }
+	}
+}

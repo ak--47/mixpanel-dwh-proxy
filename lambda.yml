@@ -1,0 +1,55 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: Mixpanel Proxy Service
+
+Globals:
+  Function:
+    Timeout: 60
+    Runtime: nodejs20.x
+    Environment:
+      Variables:
+        MIXPANEL_TOKEN: !Ref MixpanelToken
+        FRONTEND_URL: !Ref FrontendUrl
+        RUNTIME: !Ref Runtime
+        REGION: !Ref Region
+        PLATFORM: !Ref Platform
+
+Parameters:
+  MixpanelToken:
+    Type: String
+    Description: "Mixpanel token"
+  FrontendUrl:
+    Type: String
+    Description: "Frontend URL"
+  Runtime:
+    Type: String
+    Description: "Runtime environment"
+  Region:
+    Type: String
+    Description: "AWS Region"
+  Platform:
+    Type: String
+    Description: "Platform"
+
+Resources:
+  MixpanelProxyFunction:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: lambda.handler
+      CodeUri: lambda
+      Events:
+        Root:
+          Type: Api
+          Properties:
+            Path: /
+            Method: ANY
+        Proxy:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+Outputs:
+  ApiUrl:
+    Description: "API Gateway endpoint URL for Proxy Function"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"

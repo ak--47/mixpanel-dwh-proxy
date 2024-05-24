@@ -1,0 +1,15 @@
+.vscode
+demo
+performance
+scripts
+tests
+.env
+.funcignore
+.gitignore
+app.json
+README.md
+node_modules
+.git
+.prettierrc
+lambda
+samconfig.toml

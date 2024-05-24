@@ -1,0 +1,59 @@
+{
+	"name": "mp-express-proxy",
+	"version": "1.0.0",
+	"description": "a proxy for communicating with mixpanel's js SDK",
+	"main": "server.js",
+	"scripts": {
+		"start": "NODE_ENV=prod node server.js",
+		"dev": "NODE_ENV=dev nodemon --inspect server.js",
+		"frontend": "npx serve ./demo/",
+		"test": "jest",
+		"stress": "npx artillery run --dotenv ./performance/.env --output ./performance/report.json ./performance/proxy-load-test.yml",
+		"deploy:cloudrun": "./scripts/gcp-run-deploy.sh",
+		"deploy:cloudfunc": "./scripts/gcp-func-deploy.sh",
+		"build:lambda": "esbuild server.js --bundle --platform=node --target=node20 --outfile=lambda/lambda.js",
+		"run:lambda": "sam local start-api --port 3000 --template ./lambda.yml",
+		"deploy:aws": "./scripts/aws-deploy.sh",
+		"deploy:azure": "./scripts/aure-deploy.sh"
+	},
+	"keywords": [
+		"mixpanel",
+		"proxy",
+		"express",
+		"cloudrun",
+		"nodejs",
+		"javascript",
+		"trakcer",
+		"analytics",
+		"events"
+	],
+	"author": "",
+	"license": "ISC",
+	"dependencies": {
+		"@aws-sdk/client-redshift-data": "^3.583.0",
+		"@google-cloud/bigquery": "^7.7.0",
+		"@google-cloud/functions-framework": "^3.4.0",
+		"azure-function-express": "^2.0.0",
+		"body-parser": "^1.20.2",
+		"date-fns": "^3.6.0",
+		"dotenv": "^16.4.5",
+		"express": "^4.18.2",
+		"fetch-retry": "^5.0.6",
+		"http-proxy-middleware": "^2.0.6",
+		"serverless-http": "^3.2.0",
+		"snowflake-sdk": "^1.10.1"
+	},
+	"jest": {
+		"globalSetup": "./tests/setup.js",
+		"globalTeardown": "./tests/teardown.js"
+	},
+	"devDependencies": {
+		"ak-tools": "^1.0.58",
+		"artillery": "^2.0.12",
+		"esbuild": "^0.21.3",
+		"jest": "^29.7.0",
+		"nodemon": "^3.1.0",
+		"puppeteer": "^22.9.0",
+		"tree-kill": "^1.2.2"
+	}
+}
