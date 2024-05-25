@@ -4,7 +4,6 @@ let verbose = false;
 let cli_mode = false;
 let LOG_MAX_SIZE = 1000000;
 
-/** @typedef {import('../types').logEntry} logEntry*/
 
 function setVerbose(value) {
 	verbose = value;
@@ -24,7 +23,7 @@ function getVerbose() {
 }
 
 /**
- * @returns {logEntry[]}
+ * @returns {import('../types').logEntry[]}
  */
 function getLog() {
 	return logBuffer;
@@ -75,9 +74,7 @@ function log(message, ...data) {
 					props.error = {
 						message: item.message || "",
 						stack: item.stack || "",
-						name: item.name || "",
-						file: item.fileName || "",
-						line: item.lineNumber || ""
+						name: item.name || ""
 					};
 				} else {
 					Object.assign(props, item);

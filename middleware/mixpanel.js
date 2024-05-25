@@ -1,17 +1,29 @@
+// @ts-ignore
+const fetch = require('fetch-retry')(global.fetch);
+const log = require('../components/logger');
+
 const NODE_ENV = process.env.NODE_ENV || 'prod';
 const REGION = process.env.REGION || 'US';
 const BASE_URL = `https://api${REGION?.toUpperCase() === "EU" ? '-eu' : ''}.mixpanel.com`;
 if (!BASE_URL) throw new Error('BASE_URL is required; mixpanel middleware is not ready');
 
+/** @typedef {import('../types').Endpoints} Endpoints */
+/** @typedef {import('../types').InsertResult} InsertResult */
+/** @typedef {import('../types').MixpanelEvent} Event */
+/** @typedef {import('../types').UserUpdate} UserUpdate */
+/** @typedef {import('../types').GroupUpdate} GroupUpdate */
+/** @typedef {Event[] | UserUpdate[] | GroupUpdate[]} DATA */
+
+
 /**
  * sends a POST request to the given URL with the given data
- * @param  {Object[]} data
- * @param  {string} type
- * @param  {string} base
+ * @param  {DATA} data
+ * @param  {Endpoints} type
  */
-async function makeRequest(data, type, base = BASE_URL) {
-	const url = `${base}/${type}?verbose=1`;
-	if (NODE_ENV === 'dev') console.log(`\nrequest to ${shortUrl(url)} with data:\n${pp(data)} ${sep()}`);
+async function makeRequest(data, type,) {
+	const url = `${BASE_URL}/${type}?verbose=1`;
+	log(`\nrequest to ${shortUrl(url)} with data:\n${pp(data)} ${sep()}`);
+	let result = { status: "born", destination: "mixpanel" };
 	try {
 		const request = await fetch(url, {
 			method: 'POST',
@@ -24,7 +36,7 @@ async function makeRequest(data, type, base = BASE_URL) {
 		const { status = 0, statusText = "" } = request;
 		const response = await request.json();
 
-		if (NODE_ENV === 'dev') console.log(`got ${status} ${statusText} from ${shortUrl(url)}:\n${pp(response)} ${sep()}`);
+		log(`got ${status} ${statusText} from ${shortUrl(url)}:\n${pp(response)} ${sep()}`);
 
 		return response;
 	}

@@ -1,47 +1,111 @@
 /*
 ----
-BIQUERY MIDDLEWARE
+BIGQUERY MIDDLEWARE
 ----
 */
-const NODE_ENV = process.env.NODE_ENV || 'prod';
-const { BigQuery } = require('@google-cloud/bigquery');
-const u = require('ak-tools');
-const { prepHeaders, cleanName, checkEnv } = require('../components/inference');
-const log = require('../components/logger.js');
-require('dotenv').config();
 
-let client;  // use application default credentials; todo: override with service account
-let datasetId = '';
-let tableId = '';
+const NODE_ENV = process.env.NODE_ENV || "prod";
+const { BigQuery } = require("@google-cloud/bigquery");
+const u = require("ak-tools");
+const schemas = require("./bigquery-schemas.js");
+const log = require("../components/logger.js");
+require("dotenv").config();
 
 /** @typedef { import('../types.js').BigQueryTypes } BQTypes */
+/** @typedef {import('@google-cloud/bigquery').BigQuery} BQClient */
+
+// CORE MIDDLEWARE CONTRACT
+/** @typedef {import('../types').Entities} Entities */
+/** @typedef {import('../types').Endpoints} Endpoints */
+/** @typedef {import('../types').TableNames} TableNames */
+/** @typedef {import('../types').Schema} Schema */
+/** @typedef {import('../types').InsertResult} InsertResult */
+// MIXPANEL DATA
+/** @typedef {import('../types').FlatEvent} Event */
+/** @typedef {import('../types').FlatUserUpdate} UserUpdate */
+/** @typedef {import('../types').FlatGroupUpdate} GroupUpdate */
+/** @typedef {Event[] | UserUpdate[] | GroupUpdate[]} DATA */
+
+
+//these vars should be cached and only run once when the server starts
+/** @type {BQClient} */
+let client;
+let bigquery_dataset;
+let bigquery_project;
+let bigquery_keyfile;
+let bigquery_service_account;
+let bigquery_service_account_pass;
+let isClientReady;
+let isDatasetReady;
+let areTablesReady;
+
+
+
 
 /**
-* BigQuery middleware
-* implements this contract
-* @param  {import('../types.js').Schema} schema
-* @param  {import('../types.js').csvBatch[]} batches
-* @param  {import('../types.js').JobConfig} PARAMS
-* @returns {Promise<import('../types.js').WarehouseUploadResult>}
-*/
-async function loadToBigQuery(schema, batches, PARAMS) {
-	let {
-		bigquery_dataset = '',
-		bigquery_project = '',
-		bigquery_keyfile = '',
-		bigquery_service_account = '',
-		bigquery_service_account_pass = '',
-		dry_run = false,
-		table_name = ''
-	} = PARAMS;
+ * Main function to handle BigQuery data insertion
+ * this function is called in the main server.js file 
+ * and will be called repeatedly as clients stream data in (from client-side SDKs)
+ * @param  {DATA} data
+ * @param  {Endpoints} type
+ * @param  {TableNames} tableNames
+ * @return {Promise<InsertResult>}
+ *
+ */
+async function main(data, type, tableNames) {
+	const startTime = Date.now();
+	const init = await initializeBigQuery(tableNames);
+	const { eventTable, userTable, groupTable } = tableNames;
+	// now we know the tables is ready and we can insert data; this runs repeatedly
+	let targetTable;
+	switch (type) {
+		case "track":
+			targetTable = eventTable;
+			break;
+		case "engage":
+			targetTable = userTable;
+			break;
+		case "groups":
+			targetTable = groupTable;
+			break;
+		default:
+			throw new Error("Invalid Record Type");
+	}
 
-	if (!bigquery_dataset) throw new Error('bigquery_dataset is required');
-	if (!table_name) throw new Error('table_name is required');
-	if (!bigquery_project) throw new Error('bigquery_project is required');
-	if (!bigquery_keyfile && (!bigquery_service_account || !bigquery_service_account_pass)) throw new Error('bigquery_keyfile or bigquery_service_account + bigquery_service_account_pass is required');
-	if (!schema) throw new Error('schema is required');
-	if (!batches) throw new Error('batches is required');
-	if (batches.length === 0) throw new Error('batches is empty');
+	const table = client.dataset(bigquery_dataset).table(targetTable);
+
+	const result = await insertData(data, table, getBigQuerySchema(type));
+	const duration = Date.now() - startTime;
+	result.duration = duration;
+	return result;
+
+}
+
+async function initializeBigQuery(tableNames) {
+	// ENV STUFF
+	({ bigquery_dataset = "", bigquery_project, bigquery_keyfile, bigquery_service_account, bigquery_service_account_pass } =
+		process.env);
+	const { eventTable, userTable, groupTable } = tableNames;
+	if (!isClientReady) {
+		isClientReady = await verifyBigQueryCredentials();
+		if (!isClientReady) throw new Error("BigQuery credentials verification failed.");
+	}
+
+	if (!isDatasetReady) {
+		isDatasetReady = await verifyOrCreateDataset();
+		if (!isDatasetReady) throw new Error("Dataset verification or creation failed.");
+	}
+
+	if (!areTablesReady) {
+		const tableCheckResults = await verifyOrCreateTables([["track", eventTable], ["user", userTable], ["group", groupTable]]);
+		areTablesReady = tableCheckResults.every(result => result);
+		if (!areTablesReady) throw new Error("Table verification or creation failed.");
+	}
+
+	return [isClientReady, isDatasetReady, areTablesReady];
+}
+
+async function verifyBigQueryCredentials() {
 
 	// credentials or keyfile or application default credentials
 	/** @type {import('@google-cloud/bigquery').BigQueryOptions} */
@@ -54,188 +118,79 @@ async function loadToBigQuery(schema, batches, PARAMS) {
 	if (bigquery_service_account && bigquery_service_account_pass) {
 		auth.credentials = {
 			client_email: bigquery_service_account,
-			private_key: bigquery_service_account_pass
+			private_key: bigquery_service_account_pass,
 		};
 	}
 
 	client = new BigQuery(auth);
 
-	const validCredentials = await verifyBigQueryCredentials();
-	if (typeof validCredentials === 'boolean' && !validCredentials) throw new Error(`Invalid BigQuery credentials; Got Message: ${validCredentials}`);
-
-	table_name = cleanName(table_name);
-	datasetId = bigquery_dataset;
-	tableId = table_name;
-	// ensure column headers are clean in schema and batches
-	const columnHeaders = schema.map(field => field.name);
-	const headerMap = prepHeaders(columnHeaders);
-	const headerReplacePairs = prepHeaders(columnHeaders, true);
-	// @ts-ignore
-	schema = schema.map(field => u.rnVals(field, headerReplacePairs));
-	batches = batches.map(batch => batch.map(row => u.rnKeys(row, headerMap)));
-
-	// build a specific schema for BigQuery
-	// @ts-ignore
-	schema = schemaToBQS(schema);
-
-	if (dry_run) {
-		log('Dry run requested. Skipping BigQuery upload.');
-		return { schema, dataset: datasetId, table: tableId, upload: [], logs: log.getLog() };
+	const query = "SELECT 1";
+	try {
+		const [rows] = await client.query(query);
+		log("BigQuery credentials are valid");
+		return true;
+	} catch (error) {
+		log("Error verifying BigQuery credentials:", error);
+		return error.message;
 	}
-
-	// do work
-	const dataset = await createDataset();
-	const table = await createTable(schema);
-	const upload = await insertData(schema, batches);
-	const logs = log.getLog();
-
-	const uploadJob = { schema, dataset, table, upload, logs };
-
-	// @ts-ignore
-	return uploadJob;
 }
 
-
-async function createDataset() {
-	const datasets = await client.getDatasets();
-	const datasetExists = datasets[0].some(dataset => dataset.id === datasetId);
-
+async function verifyOrCreateDataset() {
+	const [datasets] = await client.getDatasets();
+	const datasetExists = datasets.some((dataset) => dataset.id === bigquery_dataset);
 	if (!datasetExists) {
-		const [dataset] = await client.createDataset(datasetId);
-		log(`Dataset ${dataset.id} created.\n`);
-		return datasetId;
-	} else {
-		log(`Dataset ${datasetId} already exists.\n`);
-		return datasetId;
+		log(`Dataset ${bigquery_dataset} does not exist. creating...`);
+		const [success] = await client.createDataset(bigquery_dataset);
+		const [moreDatasets] = await client.getDatasets();
+		const moreDatasetExists = moreDatasets.some((dataset) => dataset.id === bigquery_dataset);
+		if (!moreDatasetExists) {
+			log(`Failed to create dataset ${bigquery_dataset}`);
+			return false;
+		}
+		log(`Dataset ${bigquery_dataset} created.`);
+		return true;
+
+
 	}
+	return true;
 }
-
 /**
- * @param  {import('../types.js').Schema} schema
+ * @param  {['track' | 'user' | 'group', string][]} tableNames
  */
-function schemaToBQS(schema) {
-	const transformedSchema = schema.map(field => {
-		let bqType;
-		let mode = 'NULLABLE';
+async function verifyOrCreateTables(tableNames) {
+	const results = [];
+	const [tables] = await client.dataset(bigquery_dataset).getTables();
 
-		// Determine BigQuery type
-		// ? https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types
-		switch (field.type.toUpperCase()) {
-			// JSON TYPES
-			case 'OBJECT':
-				bqType = 'JSON';
-
-				break;
-			case 'ARRAY':
-				bqType = 'JSON';
-
-				break;
-			case 'JSON':
-				bqType = 'JSON';
-
-				break;
-
-			// NUMERIC TYPES
-			case 'INT':
-				bqType = 'INT64';
-				break;
-			case 'FLOAT':
-				bqType = 'FLOAT64';
-				break;
-
-			// DATE TYPES
-			case 'DATE':
-				bqType = 'DATE';
-				break;
-			case 'TIMESTAMP':
-				bqType = 'TIMESTAMP';
-				break;
-
-			// PRIMITIVE TYPES
-			case 'BOOLEAN':
-				bqType = 'BOOLEAN';
-				break;
-			case 'STRING':
-				bqType = 'STRING';
-			default:
-				bqType = field.type.toUpperCase();
-				break;
+	for (const [type, table] of tableNames) {
+		const tableExists = tables.some((t) => t.id === table);
+		if (!tableExists) {
+			log(`Table ${table} does not exist. creating...`);
+			const tableSchema = getBigQuerySchema(type);
+			const [newTable] = await client.dataset(bigquery_dataset).createTable(table, { schema: tableSchema });
+			const [moreTables] = await client.dataset(bigquery_dataset).getTables();
+			const moreTableExists = moreTables.some((t) => t.id === table);
+			if (!moreTableExists) {
+				log(`Failed to create table ${table}`);
+				results.push(false);
+			} else {
+				log(`Table ${table} created.`);
+				const isTableReady = await waitForTableToBeReady(newTable);
+				if (isTableReady) results.push(true);
+				else results.push(false);
+			}
+		} else {
+			log(`Table ${table} already exists.`);
+			const isTableReady = await waitForTableToBeReady(client.dataset(bigquery_dataset).table(table));
+			if (isTableReady) results.push(true);
+			else results.push(false);
 		}
 
-		// Build field definition
-		const fieldSchema = {
-			name: field.name,
-			type: bqType,
-			mode
-		};
-
-
-
-		return fieldSchema;
-	});
-
-	return transformedSchema;
-}
-/**
- * @param  {any} value
- * @param  {BQTypes} type
- */
-function convertField(value, type) {
-	switch (type) {
-		case 'STRING':
-			return value?.toString();
-		case 'TIMESTAMP':
-			return value;
-		case 'DATE':
-			return value;
-		case 'INT64':
-			return parseInt(value);
-		case 'FLOAT64':
-			return parseFloat(value);
-		case 'BOOLEAN':
-			if (typeof value === 'boolean') return value;
-			if (typeof value === 'number') return value === 1;
-			if (typeof value === 'string') return value?.toLowerCase() === 'true';
-		case 'RECORD':
-			if (Array.isArray(value)) return JSON.stringify(value);
-			if (typeof value === 'object') return JSON.stringify(value);
-			if (typeof value === 'string') return value;
-		case 'JSON':
-			if (Array.isArray(value)) return JSON.stringify(value);
-			if (typeof value === 'object') return JSON.stringify(value);
-			if (typeof value === 'string') return value;
-		case 'STRUCT':
-			if (Array.isArray(value)) return JSON.stringify(value);
-			if (typeof value === 'object') return JSON.stringify(value);
-			if (typeof value === 'string') return value;
-		default:
-			return value;
 	}
-}
-
-function prepareRowsForInsertion(batch, schema) {
-	return batch.map(row => {
-		const newRow = {};
-		schema.forEach(field => {
-			//sparse CSVs will have missing fields
-			if (row[field.name] !== '') {
-				try {
-					newRow[field.name] = convertField(row[field.name], field.type.toUpperCase());
-				}
-				catch (error) {
-					debugger;
-				}
-			}
-			if (row[field.name] === '') delete newRow[field.name];
-			if (row[field.name] === undefined) delete newRow[field.name];
-			if (row[field.name] === null) delete newRow[field.name];
-		});
-		return newRow;
-	});
+	return results;
 }
 
 async function waitForTableToBeReady(table, retries = 20, maxInsertAttempts = 20) {
-	log('Checking if table exits...');
+	log("Checking if table exits...");
 
 	tableExists: for (let i = 0; i < retries; i++) {
 		const [exists] = await table.exists();
@@ -253,51 +208,46 @@ async function waitForTableToBeReady(table, retries = 20, maxInsertAttempts = 20
 		}
 	}
 
-	log('\nChecking if table is ready for operations...');
+	log("\nChecking if table is ready for operations...");
 	let insertAttempt = 0;
 	while (insertAttempt < maxInsertAttempts) {
 		try {
 			// Attempt a dummy insert that SHOULD fail, but not because 404
 			const dummyRecord = { [u.uid()]: u.uid() };
 			await table.insert([dummyRecord]);
-			log('...should never get here...');
+			log("...should never get here...");
 			return true; // If successful, return true immediately
 		} catch (error) {
 			if (error.code === 404) {
 				const sleepTime = u.rand(1000, 5000);
-				log(`\tTable not ready for operations, sleeping ${u.prettyTime(sleepTime)} retrying... attempt #${insertAttempt + 1}`);
+				log(
+					`\tTable not ready for operations, sleeping ${u.prettyTime(sleepTime)} retrying... attempt #${insertAttempt + 1
+					}`
+				);
 				await u.sleep(sleepTime);
 				insertAttempt++;
-			}
-
-			else if (error.name === 'PartialFailureError') {
-				log('\tTable is ready for operations\n');
+			} else if (error.name === "PartialFailureError") {
+				log("\tTable is ready for operations\n");
 				return true;
-			}
-
-			else {
-				log('should never get here either');
+			} else {
+				log("should never get here either");
 				debugger;
 			}
-
-
-
 		}
 	}
 	return false; // Return false if all attempts fail
 }
 
-async function insertData(schema, batches) {
-	const table = client.dataset(datasetId).table(tableId);
-
-	// Check if table is ready
-	const tableReady = await waitForTableToBeReady(table);
-	if (!tableReady) {
-		log('\nTable is NOT ready after all attempts. Aborting data insertion.');
-		process.exit(1);
-	}
-	log('Starting data insertion...\n');
-	const results = [];
+/**
+ * insert data into BigQuery
+ * @param  {DATA} batch
+ * @param  {import('@google-cloud/bigquery').Table} table
+ * @param  {Schema} schema
+ * @return {Promise<InsertResult>}
+ */
+async function insertData(batch, table, schema) {
+	log("Starting data insertion...\n");
+	let result = { status: "born", destination: "bigQuery" };
 
 	/** @type {import('@google-cloud/bigquery').InsertRowsOptions} */
 	const options = {
@@ -307,68 +257,120 @@ async function insertData(schema, batches) {
 		partialRetries: 3,
 		schema: schema,
 	};
-	// Continue with data insertion if the table is ready
-	let currentBatch = 0;
-	for (const batch of batches) {
-		currentBatch++;
-		const start = Date.now();
-		try {
-			const rows = prepareRowsForInsertion(batch, schema);
-			const [response] = await table.insert(rows, options);
-			const duration = Date.now() - start;
-			results.push({ status: 'success', insertedRows: rows.length, failedRows: 0, duration });
-			if (log.isVerbose()) u.progress(`\tsent batch ${u.comma(currentBatch)} of ${u.comma(batches.length)} batches`);
 
-		} catch (error) {
-			const duration = Date.now() - start;
-			if (error.name === 'PartialFailureError') {
-				const failedRows = error.errors.length;
-				const insertedRows = batch.length - failedRows;
-				const uniqueErrors = Array.from(new Set(error.errors.map(e => e.errors.map(e => e.message)).flat()));;
-				results.push({ status: 'error', type: "partial failure", failedRows, insertedRows, errors: uniqueErrors, duration });
-				log(`Partial failure inserting batch ${currentBatch}; will continue`);
-			}
-			batch;
-			debugger;
-			throw error;
-		}
-	}
-	log('\n\tData insertion complete.\n');
-	return results;
-}
-
-async function createTable(schema) {
-	const dataset = client.dataset(datasetId);
-	const table = dataset.table(tableId);
-	const [tableExists] = await table.exists();
-
-	if (tableExists) {
-		log(`Table ${tableId} already exists. Deleting existing table.`);
-		await table.delete();
-		log(`Table ${tableId} has been deleted.`);
-	}
-
-	// Proceed to create a new table with the new schema
-	const options = { schema: schemaToBQS(schema) };
-	const [newTable] = await dataset.createTable(tableId, options);
-	log(`New table ${newTable.id} created with the updated schema.\n`);
-	const newTableExists = await newTable.exists();
-	return newTable.id;
-}
-
-async function verifyBigQueryCredentials() {
-	const query = 'SELECT 1';
 	try {
-		const [rows] = await client.query(query);
-		log('BigQuery credentials are valid');
-		return true;
+		const rows = prepareRowsForInsertion(batch, schema);
+		const [response] = await table.insert(rows, options);
+		result = { status: "success", insertedRows: rows.length, failedRows: 0, destination: "bigQuery" };
 	} catch (error) {
-		log('Error verifying BigQuery credentials:', error);
-		return error.message;
+
+		if (error.name === "PartialFailureError") {
+			const failedRows = error.errors.length;
+			const insertedRows = batch.length - failedRows;
+			const uniqueErrors = Array.from(new Set(error.errors.map((e) => e.errors.map((e) => e.message)).flat()));
+			result = {
+				status: "error",
+				type: "partial failure",
+				failedRows,
+				insertedRows,
+				errors: uniqueErrors,
+				destination: "bigQuery",
+
+			};
+			log(`Partial failure`);
+		}
+		batch;
+		debugger;
+		throw error;
+	}
+
+	log("\n\tData insertion complete.\n");
+	return { ...result, dest: "bigQuery" };
+}
+
+/**
+ * @param  {Entities} type
+ */
+function getBigQuerySchema(type) {
+	const schemaMappings = {
+		event: schemas.eventsSchema,
+		track: schemas.eventsSchema,
+		user: schemas.usersSchema,
+		engage: schemas.usersSchema,
+		group: schemas.groupsSchema,
+		groups: schemas.groupsSchema,
+	};
+	const schema = schemaMappings[type];
+	if (!schema) throw new Error("Invalid Record Type");
+	return schema;
+}
+
+/**
+ * @param  {any} value
+ * @param  {BQTypes} type
+ */
+function convertField(value, type) {
+	switch (type) {
+		case "STRING":
+			return value?.toString();
+		case "TIMESTAMP":
+			return value;
+		case "DATE":
+			return value;
+		case "INT64":
+			return parseInt(value);
+		case "FLOAT64":
+			return parseFloat(value);
+		case "BOOLEAN":
+			if (typeof value === "boolean") return value;
+			if (typeof value === "number") return value === 1;
+			if (typeof value === "string") return value?.toLowerCase() === "true";
+		case "RECORD":
+			if (Array.isArray(value)) return JSON.stringify(value);
+			if (typeof value === "object") return JSON.stringify(value);
+			if (typeof value === "string") return value;
+		case "JSON":
+			if (Array.isArray(value)) return JSON.stringify(value);
+			if (typeof value === "object") return JSON.stringify(value);
+			if (typeof value === "string") return value;
+		case "STRUCT":
+			if (Array.isArray(value)) return JSON.stringify(value);
+			if (typeof value === "object") return JSON.stringify(value);
+			if (typeof value === "string") return value;
+		default:
+			return value;
 	}
 }
 
+function prepareRowsForInsertion(batch, schema) {
+	const currentTime = new Date().toISOString();
+	return batch.map((row) => {
+		const newRow = {};
+		newRow.insert_time = currentTime;
+		// schematized fields
+		const schematizedFields = Array.from(
+			new Set(
+				Object.entries(schema)
+					.flat()
+					.filter(a => typeof a !== 'string')
+					.flat()
+					.filter(a => a.name !== "properties").map(a => a.name)
+			)
+		);
+		schematizedFields.forEach((field) => {
+			if (row[field] !== undefined) {
+				try {
+					newRow[field] = convertField(row[field], 'STRING');
+					delete row[field];
+				} catch (error) {
+					debugger;
+				}
+			}
+		});
+		newRow.properties = convertField({ ...row }, "JSON");
+		return newRow;
+	});
+}
 
-
-
-module.exports = loadToBigQuery;
+main.init = initializeBigQuery;
+module.exports = main;

@@ -3,6 +3,7 @@
 	"jest.runMode": "on-demand",
 	"js/ts.implicitProjectConfig.checkJs": true,
 	"cSpell.words": [
+		"DWHs",
 		"funcignore",
 		"keyfile",
 		"Runtimes",

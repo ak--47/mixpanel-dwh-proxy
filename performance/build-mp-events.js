@@ -19,7 +19,10 @@ function generateDataBatch(context, events, done) {
     const dataBatch = [];
 
     const user = {
-        distinct_id: chance.guid(),
+		token: "c87a466527ec2b225e664a837b7cacc2",
+        distinct_id: chance.guid(),		
+		$device_id: chance.guid(),
+		$insert_id: chance.guid(),
         email: chance.email(),
         level: chance.integer({ min: 1, max: 100 }),
         username: chance.name(),
