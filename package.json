@@ -1,5 +1,5 @@
 {
-	"name": "mp-express-proxy",
+	"name": "mixpanel-dwh-proxy",
 	"version": "1.0.0",
 	"description": "a proxy for communicating with mixpanel's js SDK",
 	"main": "server.js",
