@@ -6,3 +6,5 @@ scripts/.aws-sam
 lambda
 samconfig.toml
 .DS_Store
+tmp/
+!tmp/.gitkeep

@@ -5,12 +5,21 @@ SNOWFLAKE MIDDLEWARE
 */
 const snowflake = require('snowflake-sdk');
 const { prepHeaders, cleanName, checkEnv } = require('../components/inference');
-const {schematizeForWarehouse} = require('../components/parser.js');
+const { schematizeForWarehouse } = require('../components/parser.js');
+const path = require('path');
+const { writeFile, unlink } = require('fs/promises');
+const { uid } = require('ak-tools');
+const { tmpdir } = require('os');
+const dayjs = require('dayjs');
+
+
 
 /** @typedef { import('../types.js').SnowflakeTypes } SnowflakeTypes */
 /** @typedef {import('snowflake-sdk').Connection} SnowflakeConnection */
 
 const NODE_ENV = process.env.NODE_ENV || "prod";
+const TEMP_DIR = NODE_ENV === 'prod' ? path.resolve(tmpdir()) : path.resolve('./tmp');
+const TODAY = dayjs().format('YYYY-MM-DD');
 let MAX_RETRIES = process.env.MAX_RETRIES || 5;
 if (typeof MAX_RETRIES === "string") MAX_RETRIES = parseInt(MAX_RETRIES);
 const u = require("ak-tools");
@@ -45,9 +54,13 @@ let snowflake_schema;
 let snowflake_warehouse;
 let snowflake_role;
 let snowflake_access_url;
+let snowflake_stage;
+let snowflake_pipe;
 let isConnectionReady;
 let isDatasetReady;
 let areTablesReady;
+let isStageReady;
+let isPipeReady;
 
 /**
  * Main function to handle BigQuery data insertion
@@ -80,7 +93,14 @@ async function main(data, type, tableNames) {
 	}
 	const schema = getSnowflakeSchema(type);
 	const preparedData = schematizeForWarehouse(data, schema);
-	const result = await insertWithRetry(preparedData, targetTable, schema);
+	let result;
+	if (snowflake_stage && snowflake_pipe) {
+		result = await insertStreaming(preparedData, targetTable, schema);
+	}
+	else {
+		result = await insertWithRetry(preparedData, targetTable, schema);
+	}
+
 	const duration = Date.now() - startTime;
 	result.duration = duration;
 	return result;
@@ -97,6 +117,8 @@ async function initializeSnowflake(tableNames) {
 		snowflake_warehouse,
 		snowflake_role,
 		snowflake_access_url,
+		snowflake_stage,
+		snowflake_pipe,
 		// @ts-ignore
 		MAX_RETRIES
 	} = process.env);
@@ -120,7 +142,25 @@ async function initializeSnowflake(tableNames) {
 		if (!areTablesReady) throw new Error("Table verification or creation failed.");
 	}
 
-	return [isConnectionReady, isDatasetReady, areTablesReady];
+	const result = [isConnectionReady, isDatasetReady, areTablesReady];
+
+	//for streaming inserts
+	if (snowflake_stage && snowflake_pipe) {
+		if (!isStageReady) {
+			const stageCheckResults = await verifyOrCreateStage();
+			isStageReady = stageCheckResults;
+			result.push(isStageReady);
+
+		}
+
+		if (!isPipeReady) {
+			const pipeCheckResults = await verifyOrCreatePipe(tableNames);
+			isPipeReady = pipeCheckResults;
+			result.push(isPipeReady);
+		}
+
+		return result;
+	}
 }
 
 async function createSnowflakeConnection() {
@@ -260,8 +300,90 @@ async function createTable(tableName, schema) {
 	return createTableResult;
 }
 
+async function verifyOrCreateStage() {
+	const checkStageQuery = `SHOW STAGES LIKE '${snowflake_stage}'`;
+	const result = await executeSQL(checkStageQuery);
+	if (!Array.isArray(result)) throw new Error("Failed to check stage existence");
+	if (!result || result.length === 0) {
+		log(`Stage ${snowflake_stage} does not exist. Creating...`);
+		const createStageQuery = `CREATE OR REPLACE STAGE ${snowflake_stage}`;
+		const createStageResult = await executeSQL(createStageQuery);
+		log(`Stage ${snowflake_stage} created.`);
+	} else {
+		log(`Stage ${snowflake_stage} already exists.`);
+	}
+	return true;
+}
+
+async function verifyOrCreatePipe(tableNames) {
+	const checkPipeQuery = `SHOW PIPES LIKE '${snowflake_pipe}'`;
+	const result = await executeSQL(checkPipeQuery);
+	if (!Array.isArray(result)) throw new Error("Failed to check pipe existence");
+	if (!result || result.length === 0) {
+		log(`Pipe ${snowflake_pipe} does not exist. Creating...`);
+		const { eventTable, userTable, groupTable } = tableNames;
+		const targetTable = eventTable;  // Assuming the pipe is for the event table. Adjust if necessary.
+
+		const createPipeQuery = `
+            CREATE OR REPLACE PIPE ${snowflake_pipe} AS
+            COPY INTO ${targetTable}
+            FROM (SELECT $1 FROM @${snowflake_stage})
+            FILE_FORMAT = (TYPE = 'JSON')
+        `;
+		const createPipeResult = await executeSQL(createPipeQuery);
+		log(`Pipe ${snowflake_pipe} created.`);
+	} else {
+		log(`Pipe ${snowflake_pipe} already exists.`);
+	}
+	return true;
+}
+
+
+
 /**
- * insert data into BigQuery
+ * insert data into snowflake streaming style
+ * ? https://docs.snowflake.com/en/user-guide/data-load-snowpipe-streaming-overview
+ * @param  {WarehouseData} batch
+ * @param  {string} table
+ * @param  {Schema} schema
+ * @return {Promise<InsertResult>}
+ */
+async function insertStreaming(batch, table, schema) {
+	log("Starting data insertion using Snowpipe...\n");
+	let result = { status: "born", dest: "snowflake" };
+
+	const FILE_PATH = path.resolve(TEMP_DIR, TODAY, "-", `${uid(42)}.json`);
+
+	// Prepare data to be uploaded to the stage
+	const dataToUpload = JSON.stringify(batch);
+
+	// Write data to a temporary file
+	const localWrite = await writeFile(FILE_PATH, dataToUpload);
+
+	// Upload the file to the Snowflake stage
+	const putCommand = `PUT file://${FILE_PATH} @${snowflake_stage}`;
+	try {
+		await executeSQL(putCommand);
+		log(`File ${FILE_PATH} uploaded to stage ${snowflake_stage}`);
+	} catch (error) {
+		log(`Error uploading file to stage: ${error.message}`, error);
+		throw error;
+	} finally {
+		// Remove the temporary file
+		const localDelete = await unlink(FILE_PATH);
+	}
+
+	// Snowpipe will automatically ingest the file from the stage into the target table
+	result.status = 'success';
+	result.insertedRows = batch.length;
+	result.failedRows = 0;
+
+	log("Data insertion using Snowpipe complete.\n");
+	return result;
+}
+
+/**
+ * insert data into snowflake
  * @param  {WarehouseData} batch
  * @param  {string} table
  * @param  {Schema} schema

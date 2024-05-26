@@ -1,15 +1,19 @@
-const { existsSync } = require('fs');
-
-module.exports = function validate(PARAMS) {
+module.exports = function validate(PARAMS = { ...process.env }) {
 	for (const key in PARAMS) {
 		if (PARAMS[key] === undefined) delete PARAMS[key];
-		if (PARAMS[key] === '') delete PARAMS[key];
-		if (PARAMS[key] === null) delete PARAMS[key];
+		else if (PARAMS[key] === '') delete PARAMS[key];
+		else if (PARAMS[key] === null) delete PARAMS[key];
+		else {
+			// case insensitive
+			PARAMS[key?.toLowerCase()] = PARAMS[key];
+			PARAMS[key?.toUpperCase()] = PARAMS[key];
+			PARAMS[key] = PARAMS[key];			
+		}
 	}
 	const errors = [];
 	// ALL
-	const { RUNTIME = "", DESTINATIONS = [], EVENTS_TABLE_NAME, USERS_TABLE_NAME, GROUPS_TABLE_NAME } = PARAMS;
-	if (!RUNTIME) errors.push(new Error('RUNTIME is required'));
+	const {  WAREHOUSES = "", EVENTS_TABLE_NAME, USERS_TABLE_NAME, GROUPS_TABLE_NAME } = PARAMS;
+	const DESTINATIONS = WAREHOUSES.split(',').map(wh => wh.trim()).filter(a => a).map(t => t.toLowerCase());	
 	if (!EVENTS_TABLE_NAME) errors.push(new Error('EVENTS_TABLE_NAME is required'));
 	if (!USERS_TABLE_NAME) errors.push(new Error('USERS_TABLE_NAME is required'));
 	if (!GROUPS_TABLE_NAME) errors.push(new Error('GROUPS_TABLE_NAME is required'));
@@ -19,7 +23,7 @@ module.exports = function validate(PARAMS) {
 	// BIGQUERY
 	const { bigquery_project = "", bigquery_dataset = "", bigquery_service_account = "", bigquery_service_account_pass = "", bigquery_keyfile = "" } = PARAMS;
 	// SNOWFLAKE
-	const { snowflake_account = "", snowflake_user = "", snowflake_password = "", snowflake_database = "", snowflake_schema = "", snowflake_warehouse = "", snowflake_role = "", snowflake_access_url = "" } = PARAMS;
+	const { snowflake_account = "", snowflake_user = "", snowflake_password = "", snowflake_database = "", snowflake_schema = "", snowflake_warehouse = "", snowflake_role = "", snowflake_access_url = "", snowflake_stage = "", snowflake_pipe = "" } = PARAMS;
 	// REDSHIFT
 	const { redshift_workgroup = "", redshift_database = "", redshift_access_key_id = "", redshift_secret_access_key = "", redshift_session_token = "", redshift_region = "", redshift_schema_name = "" } = PARAMS;
 	// MIXPANEL
@@ -42,6 +46,12 @@ module.exports = function validate(PARAMS) {
 		if (!snowflake_warehouse) errors.push(new Error('snowflake_warehouse is required'));
 		if (!snowflake_role) errors.push(new Error('snowflake_role is required'));
 		if (!snowflake_access_url) errors.push(new Error('snowflake_access_url is required'));
+		if (snowflake_stage) {
+			if (!snowflake_pipe) errors.push(new Error('snowflake_pipe isis required'));
+		}
+		if (snowflake_pipe) {
+			if (!snowflake_stage) errors.push(new Error('snowflake_stage is required'));
+		}
 	}
 
 	// redshift
@@ -63,6 +73,11 @@ module.exports = function validate(PARAMS) {
 		// throw the first error
 		throw new Error(errors.shift()?.message || "unknown error");
 
+	}
+
+	// now sent env vars for each param
+	for (const key in PARAMS) {
+		process.env[key] = PARAMS[key];
 	}
 
 	return PARAMS;

@@ -40,6 +40,7 @@ const profileOps = ['$set', '$set_once', '$unset', '$delete', '$append', '$union
 
 // ENV
 require('dotenv').config();
+const PARAMS = validateEnv();
 const NODE_ENV = process.env.NODE_ENV || 'prod';
 if (NODE_ENV === 'dev') { log.verbose(true); log.cli(true); }
 if (NODE_ENV === 'test') { log.verbose(true); log.cli(true); }
@@ -58,7 +59,7 @@ let RUNTIME = process.env.RUNTIME?.toUpperCase() || 'LOCAL';
 const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'events';
 const USERS_TABLE_NAME = process.env.USERS_TABLE_NAME || 'users';
 const GROUPS_TABLE_NAME = process.env.GROUPS_TABLE_NAME || 'groups';
-validateEnv({ DESTINATIONS, RUNTIME, FRONTEND_URL, EVENTS_TABLE_NAME, USERS_TABLE_NAME, GROUPS_TABLE_NAME, ...process.env });
+
 const tableNames = { eventTable: EVENTS_TABLE_NAME, userTable: USERS_TABLE_NAME, groupTable: GROUPS_TABLE_NAME };
 
 // MIDDLEWARE
