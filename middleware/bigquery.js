@@ -20,11 +20,8 @@ const log = require("../components/logger.js");
 /** @typedef {import('../types').TableNames} TableNames */
 /** @typedef {import('../types').Schema} Schema */
 /** @typedef {import('../types').InsertResult} InsertResult */
-// MIXPANEL DATA
-/** @typedef {import('../types').FlatEvent} Event */
-/** @typedef {import('../types').FlatUserUpdate} UserUpdate */
-/** @typedef {import('../types').FlatGroupUpdate} GroupUpdate */
-/** @typedef {Event[] | UserUpdate[] | GroupUpdate[]} DATA */
+/** @typedef {import('../types').SchematizedData} WarehouseData */
+/** @typedef {import('../types').FlatData} FlatData */
 
 
 //these vars should be cached and only run once when the server starts
@@ -46,7 +43,7 @@ let areTablesReady;
  * Main function to handle BigQuery data insertion
  * this function is called in the main server.js file 
  * and will be called repeatedly as clients stream data in (from client-side SDKs)
- * @param  {DATA} data
+ * @param  {FlatData} data
  * @param  {Endpoints} type
  * @param  {TableNames} tableNames
  * @return {Promise<InsertResult>}
@@ -242,7 +239,7 @@ async function waitForTableToBeReady(table, retries = 20, maxInsertAttempts = 20
 
 /**
  * insert data into BigQuery
- * @param  {DATA} batch
+ * @param  {FlatData} batch
  * @param  {import('@google-cloud/bigquery').Table} table
  * @param  {Schema} schema
  * @return {Promise<InsertResult>}

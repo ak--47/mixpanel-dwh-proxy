@@ -16,9 +16,10 @@ export type Entities = "event" | "user" | "group";
 export type AllEntities = Endpoints & Entities;
 
 export type IncomingData = MixpanelEvent[] | UserUpdate[] | GroupUpdate[];
-export type WarehouseData = FlatEvent[] | FlatUserUpdate[] | FlatGroupUpdate[];
+export type FlatData = FlatEvent[] | FlatUserUpdate[] | FlatGroupUpdate[];
+export type SchematizedData = SchematizedEvent[] | SchematizedUserUpdate[] | SchematizedGroupUpdate[];
 
-export type MixpanelEvent = {
+type MixpanelEvent = {
   event: string;
   properties: {
     //things we will schematize
@@ -36,7 +37,7 @@ export type MixpanelEvent = {
   };
 };
 
-export type FlatEvent = {
+type FlatEvent = {
   event: string;
   //things we will schematize
   time: number;
@@ -52,9 +53,15 @@ export type FlatEvent = {
   [key: string]: string | number | boolean | object | any[];
 };
 
+type SchematizedEvent = FlatEvent & {
+  properties: {
+    [key: string]: string | number | boolean | object | any[];
+  };
+};
+
 type profileOperations = "$set" | "$set_once" | "$append" | "$delete" | "$union";
 
-export type UserUpdate = {
+type UserUpdate = {
   //will schematize
   $token: string;
   $distinct_id: string;
@@ -65,7 +72,7 @@ export type UserUpdate = {
   };
 };
 
-export type FlatUserUpdate = {
+type FlatUserUpdate = {
   //will schematize
   $token: string;
   $distinct_id: string;
@@ -75,7 +82,13 @@ export type FlatUserUpdate = {
   [key: string]: string;
 };
 
-export type GroupUpdate = {
+type SchematizedUserUpdate = FlatUserUpdate & {
+  properties: {
+    [key: string]: string | number | boolean | object | any[];
+  };
+};
+
+type GroupUpdate = {
   //will schematize
   $token: string;
   $group_key: string;
@@ -86,7 +99,7 @@ export type GroupUpdate = {
   };
 };
 
-export type FlatGroupUpdate = {
+type FlatGroupUpdate = {
   //will schematize
   $token: string;
   $group_key: string;
@@ -94,6 +107,12 @@ export type FlatGroupUpdate = {
   operation: profileOperations;
   //things we will not schematize and should be type JSON
   [key: string]: string;
+};
+
+type SchematizedGroupUpdate = FlatGroupUpdate & {
+  properties: {
+    [key: string]: string | number | boolean | object | any[];
+  };
 };
 
 // TypeScript types for inferred schema
@@ -120,7 +139,7 @@ type SnowflakeTypes = "VARIANT" | "STRING" | "BOOLEAN" | "NUMBER" | "FLOAT" | "T
 type RedshiftTypes = "SUPER" | "VARCHAR" | "BOOLEAN" | "INTEGER" | "REAL" | "TIMESTAMP" | "DATE";
 
 // Schema field interface
-export interface SchemaField {
+interface SchemaField {
   name: string;
   type: BasicType | BigQueryTypes | SnowflakeTypes | RedshiftTypes;
 }

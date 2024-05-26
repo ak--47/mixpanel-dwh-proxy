@@ -7,7 +7,7 @@
 /** @typedef {import('./types').Destinations} Destinations */
 /** @typedef {import('./types').Endpoints} Endpoints */
 /** @typedef {import('./types').IncomingData} IncomingData */
-/** @typedef {import('./types').WarehouseData} WarehouseData */
+/** @typedef {import('./types').FlatData} WarehouseData */
 
 // DEPENDENCIES
 const express = require('express');

@@ -69,8 +69,9 @@ function parseSDKData(reqBody) {
 
 /**
  * takes our flat object data and nests optional fields in a properties object
- * @param  {import('../types').WarehouseData} data
+ * @param  {import('../types').FlatData} data
  * @param  {import('../types').Schema} schema
+ * @returns {import('../types').SchematizedData}
  */
 function schematizeForWarehouse(data, schema) {
 	if (!Array.isArray(data)) data = [data];
@@ -90,6 +91,7 @@ function schematizeForWarehouse(data, schema) {
 		return newRow;
 	});
 
+	// @ts-ignore
 	return schematized;
 }
 

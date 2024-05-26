@@ -19,7 +19,8 @@ if (typeof MAX_RETRIES === "string") MAX_RETRIES = parseInt(MAX_RETRIES);
 /** @typedef {import('../types').TableNames} TableNames */
 /** @typedef {import('../types').Schema} Schema */
 /** @typedef {import('../types').InsertResult} InsertResult */
-/** @typedef {import('../types').WarehouseData} WarehouseData  */
+/** @typedef {import('../types').SchematizedData} WarehouseData */
+/** @typedef {import('../types').FlatData} FlatData */
 
 //these vars should be cached and only run once when the server starts
 /** @type {RedshiftDataClient} */

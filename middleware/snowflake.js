@@ -34,12 +34,9 @@ const log = require("../components/logger.js");
 /** @typedef {import('../types').TableNames} TableNames */
 /** @typedef {import('../types').Schema} Schema */
 /** @typedef {import('../types').InsertResult} InsertResult */
-// MIXPANEL DATA
-/** @typedef {import('../types').FlatEvent} Event */
-/** @typedef {import('../types').FlatUserUpdate} UserUpdate */
-/** @typedef {import('../types').FlatGroupUpdate} GroupUpdate */
-/** @typedef {Event[] | UserUpdate[] | GroupUpdate[]} DATA */
-/** @typedef {import('../types.js').WarehouseData} WarehouseData  */
+/** @typedef {import('../types').SchematizedData} WarehouseData */
+/** @typedef {import('../types').FlatData} FlatData */
+
 
 
 
@@ -63,7 +60,7 @@ let isStageReady;
 let isPipeReady;
 
 /**
- * Main function to handle BigQuery data insertion
+ * Main function to handle Snowflake data insertion
  * this function is called in the main server.js file 
  * and will be called repeatedly as clients stream data in (from client-side SDKs)
  * @param  {DATA} data
@@ -325,11 +322,10 @@ async function verifyOrCreatePipe(tableNames) {
 		const targetTable = eventTable;  // Assuming the pipe is for the event table. Adjust if necessary.
 
 		const createPipeQuery = `
-            CREATE OR REPLACE PIPE ${snowflake_pipe} AS
-            COPY INTO ${targetTable}
-            FROM (SELECT $1 FROM @${snowflake_stage})
-            FILE_FORMAT = (TYPE = 'JSON')
-        `;
+		CREATE OR REPLACE PIPE ${snowflake_pipe} AS
+		COPY INTO ${targetTable}
+		FROM @${snowflake_stage}
+		FILE_FORMAT = (TYPE = 'JSON')`;
 		const createPipeResult = await executeSQL(createPipeQuery);
 		log(`Pipe ${snowflake_pipe} created.`);
 	} else {
