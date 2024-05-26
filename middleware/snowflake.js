@@ -63,7 +63,7 @@ let isPipeReady;
  * Main function to handle Snowflake data insertion
  * this function is called in the main server.js file 
  * and will be called repeatedly as clients stream data in (from client-side SDKs)
- * @param  {DATA} data
+ * @param  {FlatData} data
  * @param  {Endpoints} type
  * @param  {TableNames} tableNames
  * @return {Promise<InsertResult>}
@@ -319,15 +319,25 @@ async function verifyOrCreatePipe(tableNames) {
 	if (!result || result.length === 0) {
 		log(`Pipe ${snowflake_pipe} does not exist. Creating...`);
 		const { eventTable, userTable, groupTable } = tableNames;
-		const targetTable = eventTable;  // Assuming the pipe is for the event table. Adjust if necessary.
+		const allTables = Object.entries(tableNames); // Ensure to verifyOrCreatePipe for all 3 tables
 
-		const createPipeQuery = `
-		CREATE OR REPLACE PIPE ${snowflake_pipe} AS
-		COPY INTO ${targetTable}
-		FROM @${snowflake_stage}
-		FILE_FORMAT = (TYPE = 'JSON')`;
-		const createPipeResult = await executeSQL(createPipeQuery);
-		log(`Pipe ${snowflake_pipe} created.`);
+		for (const [type, table] of allTables) {
+			const schema = getSnowflakeSchema(type.split('Table').shift());
+			const columnMappings = schema
+				.map(col => `$1:${col.name.toLowerCase()} AS ${col.name}`)
+				.join(', ');
+
+			const createPipeQuery = `
+			CREATE OR REPLACE PIPE ${snowflake_pipe}_${table} AS
+			COPY INTO ${table}
+			FROM (
+				SELECT ${columnMappings}
+				FROM @${snowflake_stage}
+			)
+			FILE_FORMAT = (TYPE = 'JSON');
+		`;
+			log(`Pipe ${snowflake_pipe}_${table} created.`);
+		}
 	} else {
 		log(`Pipe ${snowflake_pipe} already exists.`);
 	}
@@ -663,15 +673,38 @@ function prepareInsertSQL(schema, tableName) {
  */
 async function dropTables(tableNames) {
 	const targetTables = Object.values(tableNames);
-	const dropPromises = targetTables.map(async (table) => {
+	const dropTablePromises = targetTables.map(async (table) => {
 		const dropTableQuery = `DROP TABLE IF EXISTS ${table}`;
 		const dropTableResult = await executeSQL(dropTableQuery);
 		return dropTableResult;
 	});
-	const results = await Promise.all(dropPromises);
-	log(`Dropped tables: ${targetTables.join(', ')}`);
-	return results.flat();
+
+	let dropPipePromise = () => Promise.resolve(null);
+	if (snowflake_pipe) {
+		// @ts-ignore
+		dropPipePromise = async () => {
+			const dropPipeQuery = `DROP PIPE IF EXISTS ${snowflake_pipe}`;
+			const dropPipeResult = await executeSQL(dropPipeQuery);
+			return dropPipeResult;
+		};
+	}
+
+	let dropStagePromise = () =>  Promise.resolve(null);
+	if (snowflake_stage) {
+		// @ts-ignore
+		dropStagePromise = async () => {
+			const dropStageQuery = `DROP STAGE IF EXISTS ${snowflake_stage}`;
+			const dropStageResult = await executeSQL(dropStageQuery);
+			return dropStageResult;
+		};
+	}
+
+	const dropResults = await Promise.all([...dropTablePromises, dropPipePromise(), dropStagePromise()]);
+
+	log(`Dropped tables: ${targetTables.join(', ')}. Dropped pipe: ${snowflake_pipe}. Dropped stage: ${snowflake_stage}.`);
+	return dropResults.flat();
 }
+
 
 
 
