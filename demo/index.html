@@ -8,6 +8,7 @@
 	<title>mixpanel token hiding proxy</title>
 	<!-- MIXPANEL SDK -->
 	<script type="text/javascript">
+		const user_id = Math.random().toString(36).substring(7);
 		const PROXY_URL = `http://localhost:8080`;
 		const MIXPANEL_CUSTOM_LIB_URL = `${PROXY_URL}/lib.min.js`;
 		(function (f, b) {
@@ -23,50 +24,87 @@
 
 <body>
 	<h1>let's test our proxy in real-life!</h1>
-	<button id="clickMe">click me</button>
-	<button id="dontClickMe">don't click me</button>
+	<button id="track">track</button>
+	<button id="sendBeacon">beacon</button>
 	<button id="profileSet">profile</button>
+	<button id="groupSet">group</button>
 	<button id="identify">identify</button>
-
+	<button id="configStock">configStock</button>
+	<button id="configJSON">configJSON</button>
 	<script>
-		//mixpanel setup
-		mixpanel.init("c87a466527ec2b225e664a837b7cacc2", {
-			api_host: PROXY_URL,
-			// api_method: "POST",
-			// api_transport: "XHR",
-			// api_payload_format: 'json',
-			// loaded: function (mixpanel) {
-			// 	console.log('mixpanel has loaded');
-			// },
+		const track = document.querySelector('#track');
+		const sendBeacon = document.querySelector('#sendBeacon');
+		const profileSet = document.querySelector('#profileSet');
+		const groupSet = document.querySelector('#groupSet');
+		const identify = document.querySelector('#identify');
+		const configStock = document.querySelector('#configStock');
+		const configJSON = document.querySelector('#configJSON');
 
-			// persistence: 'localStorage',
-			// disable_persistence: false,
-			// ip: false,
-			
+		const stockConfig = {
+			api_host: PROXY_URL,
+			debug: true,
+			ignore_dnt: true,
+			batch_requests: true,
+			batch_flush_interval_ms: 5000,
+			loaded: function (mixpanel) {
+				mixpanel.reset();
+				
+				console.log('mixpanel has loaded (stock config)');
+				const ids = `\n\ndevice_id: ${mixpanel.get_property('$device_id')}\n\nuser_id: ${mixpanel.get_property('$user_id')}\n\ndistinct_id: ${mixpanel.get_property('distinct_id')}\n\n`
+				console.log(ids);
+			}
+		};
+		const jsonConfig = {
+			api_host: PROXY_URL,
+			api_method: "POST",
+			api_transport: "XHR",
+			api_payload_format: 'json',
 			debug: true,
 			ignore_dnt: true,
 			batch_requests: true,
 			batch_flush_interval_ms: 0,
 			loaded: function (mixpanel) {
-				console.log('mixpanel has loaded');
+				mixpanel.reset();
+				console.log('mixpanel has loaded (json config)');
+				const ids = `\n\ndevice_id: ${mixpanel.get_property('$device_id')}\n\nuser_id: ${mixpanel.get_property('$user_id')}\n\ndistinct_id: ${mixpanel.get_property('distinct_id')}\n\n`
+				console.log(ids);
 			},
+		}
+	</script>
+	<script>
+		//mixpanel setup
+		mixpanel.init("c87a466527ec2b225e664a837b7cacc2", stockConfig);
+
+		track.addEventListener('click', () => {
+			mixpanel.track('tracked event', { foo: "bar" }, console.log);
+		});
+
+		sendBeacon.addEventListener('click', () => {
+			mixpanel.track('beacon event', { baz: "qux" }, {transport: 'sendBeacon'}, console.log);
+		});
+
+		profileSet.addEventListener('click', () => {
+			mixpanel.people.set({ $name: "hello world", "goodbye": "night" }, console.log);
+			mixpanel.identify(user_id);
+		});
+
+		groupSet.addEventListener('click', () => {
+			mixpanel.get_group('company_id', "ak").set("$name", "ak's tunes");
+		});
+
+		identify.addEventListener('click', () => {
+			mixpanel.identify(user_id, console.log);
+		});
+
+		configStock.addEventListener('click', () => {
+			mixpanel.set_config(stockConfig, console.log);
+		});
+
+		configJSON.addEventListener('click', () => {
+			mixpanel.set_config(jsonConfig, console.log);
 		});
 
 
-		//example tracking code		
-		document.querySelector('#clickMe').addEventListener('click', () => {
-			mixpanel.track('click me button');
-		});
-		document.querySelector('#dontClickMe').addEventListener('click', () => {
-			mixpanel.track("don't click me button");
-		});
-
-		document.querySelector('#profileSet').addEventListener('click', () => {
-			mixpanel.people.set({ $name: "foo", "bar": "baz" });
-		});
-		document.querySelector('#identify').addEventListener('click', () => {
-			mixpanel.identify("ak!");
-		})
 	</script>
 </body>
 

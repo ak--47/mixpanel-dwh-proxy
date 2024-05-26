@@ -6,6 +6,8 @@
 /** @typedef {import('./types').Runtimes} Runtimes */
 /** @typedef {import('./types').Destinations} Destinations */
 /** @typedef {import('./types').Endpoints} Endpoints */
+/** @typedef {import('./types').IncomingData} IncomingData */
+/** @typedef {import('./types').WarehouseData} WarehouseData */
 
 // DEPENDENCIES
 const express = require('express');
@@ -33,13 +35,16 @@ const middleware = { bigquery, snowflake, redshift, mixpanel };
 
 // HELPERS
 const { clone } = require('ak-tools');
-
+const profileOps = ['$set', '$set_once', '$unset', '$delete', '$append', '$union', '$delete', '$increment'];
 
 
 // ENV
 require('dotenv').config();
 const NODE_ENV = process.env.NODE_ENV || 'prod';
-if (NODE_ENV === 'dev') log.verbose(true); log.cli(true);
+if (NODE_ENV === 'dev') { log.verbose(true); log.cli(true); }
+if (NODE_ENV === 'test') { log.verbose(true); log.cli(true); }
+if (NODE_ENV === 'prod') { log.verbose(false); log.cli(false); }
+log(`running in ${NODE_ENV} mode; version: ${version}; verbose: ${log.isVerbose()} cli: ${log.isCli()}`);
 const PORT = process.env.PORT || 8080;
 let FRONTEND_URL = process.env.FRONTEND_URL || "";
 if (FRONTEND_URL === "none") FRONTEND_URL = "";
@@ -58,7 +63,7 @@ const tableNames = { eventTable: EVENTS_TABLE_NAME, userTable: USERS_TABLE_NAME,
 
 // MIDDLEWARE
 setupCORS(app, FRONTEND_URL);
-proxyAssets(app, RUNTIME);
+proxyAssets(app, NODE_ENV);
 bodyParse(app);
 
 // ROUTES
@@ -69,6 +74,7 @@ app.post('/groups', async (req, res) => await handleMixpanelIncomingReq('groups'
 app.all('/', (req, res) => res.status(200).json({ status: "OK" }));
 app.all('/ping', (req, res) => res.status(200).json({ status: "OK", message: "pong", version }));
 app.all('/decide', (req, res) => res.status(299).send({ error: "the /decide endpoint is deprecated" }));
+app.all('/drop', async (req, res) => await handleDrop(req, res));
 
 // START by runtime
 if (RUNTIME === 'LAMBDA') RUNTIME = 'AWS';
@@ -101,12 +107,34 @@ const activeMiddleware = DESTINATIONS
 	.filter(wh => middleware[wh.toLowerCase()])
 	.map(wh => ({ name: wh, api: middleware[wh.toLowerCase()] }));
 
-	for (const { name, api: middleware } of activeMiddleware) {
+for (const { name, api: middleware } of activeMiddleware) {
 	if (middleware.init) {
-		middleware.init(tableNames)
+		middleware.init(tableNames);
 		log(`initializing ${name}`);
-	} 
-	
+	}
+
+}
+
+async function handleDrop(req, res) {
+	const results = [];
+
+
+	await Promise.all(activeMiddleware.map(async middleware => {
+		const { name, api } = middleware;
+		try {
+			log(`DROPPING TABLES in ${name}`);
+			const status = await api.drop(tableNames);
+			results.push({ name, status });
+			return { name, status };
+		}
+		catch (e) {
+			log(`error dropping in ${name}`, e);
+			results.push({ name, status: e.message });
+			return { name, status: `ERROR: ${e.message}` };
+		}
+	}));
+
+	res.send(results);
 }
 
 /**
@@ -135,49 +163,7 @@ async function handleMixpanelIncomingReq(type, req, res) {
 		}
 	});
 
-
-	const flatData = clone(data).map(record => {
-		//get rid of all $'s in engage directives
-		for (const key in record) {
-			if (key.startsWith('$')) {
-				record[key.slice(1)] = record[key];
-				delete record[key];
-			}
-			if (key === 'properties') {
-				for (const prop in record.properties) {
-					//get rid of all $'s in event properties
-					if (prop.startsWith('$')) {
-						record[prop.slice(1)] = record.properties[prop];
-						delete record.properties[prop];
-					}
-
-					if (prop === 'time') {
-						record.event_time = dayjs.unix(record.properties.time).toISOString();
-						delete record.properties.time;
-					}
-
-					if (prop === 'token') {
-						record.token = record.properties.token;
-						delete record.properties.token;
-					}
-				}
-				delete record.properties;
-			}
-		}
-		//merge all the props into the record
-		return {
-			...record,
-			...record.properties,
-			...record.$set,
-			...record.$set_once,
-			...record.$unset,
-			...record.$delete,
-			...record.$append,
-			...record.$union,
-			...record.$delete,
-			...record.$increment
-		};
-	});
+	const flatData = formatForWarehouse(clone(data));
 
 	const results = [];
 
@@ -185,7 +171,7 @@ async function handleMixpanelIncomingReq(type, req, res) {
 		await Promise.all(activeMiddleware.map(async middleware => {
 			const { name, api } = middleware;
 			try {
-				log(`sending ${type} data to ${name}`)
+				log(`sending ${type} data to ${name}`);
 				const uploadData = middleware.name === 'mixpanel' ? data : flatData;
 				const status = await api(uploadData, type, tableNames);
 				results.push({ name, status });
@@ -208,6 +194,62 @@ async function handleMixpanelIncomingReq(type, req, res) {
 	return results;
 }
 
+/**
+ * prep data for each warehouse by basically flattening it + cleaning key names
+ * also normalize certain values
+ * todo: allow a user to define their own values to schematize
+ * @param  {IncomingData} data
+ * @returns {WarehouseData}
+ */
+function formatForWarehouse(data) {
+	return data.map(record => {
+		//get rid of all $'s for /engage requests
+		for (const key in record) {
+			if (key.startsWith('$')) {
+				// $set, $set_once, etc... are "operations" and their values are the "properties"
+				if (profileOps.includes(key)) {
+					record.operation = key;
+					for (const prop in record[key]) {
+						record[prop] = record[key][prop];
+					}
+					delete record[key];
+				}
+
+				//for $distinct_id, $token, $time, $ip, etc...
+				else {
+					record[key.slice(1)] = record[key];
+					delete record[key];
+				}
+			}
+			if (key === 'properties') {
+				for (const prop in record.properties) {
+					//get rid of all $'s in event properties
+					if (prop.startsWith('$')) {
+						record[prop.slice(1)] = record.properties[prop];
+						delete record.properties[prop];
+					}
+
+					//convert time to ISO string
+					else if (prop === 'time') {
+						record.event_time = dayjs.unix(record.properties.time).toISOString();
+						delete record.properties.time;
+					}
+
+					//todo: add more transformations here
+
+					//if it's not a $, just move it up a level
+					else {
+						record[prop] = record.properties[prop];
+						delete record.properties[prop];
+					}
+
+				}
+				delete record.properties;  //side-note: do we have to keep deleting properties?
+			}
+		}
+		return record;
+	});
+}
 
 module.exports.parseSDKData = parseSDKData;
 module.exports.handleMixpanelData = handleMixpanelIncomingReq;

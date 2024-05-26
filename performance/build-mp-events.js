@@ -23,11 +23,13 @@ function generateDataBatch(context, events, done) {
         distinct_id: chance.guid(),		
 		$device_id: chance.guid(),
 		$insert_id: chance.guid(),
+		$user_id: chance.guid(),
         email: chance.email(),
         level: chance.integer({ min: 1, max: 100 }),
         username: chance.name(),
         race: chance.pickone(races),
-        class: chance.pickone(classes)
+        class: chance.pickone(classes),
+		codeword: "BENCHMARK",
     };
 
     for (let i = 0; i < batchSize; i++) {

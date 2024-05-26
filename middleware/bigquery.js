@@ -4,15 +4,15 @@ BIGQUERY MIDDLEWARE
 ----
 */
 
-const NODE_ENV = process.env.NODE_ENV || "prod";
 const { BigQuery } = require("@google-cloud/bigquery");
+/** @typedef { import('../types.js').BigQueryTypes } BQTypes */
+/** @typedef {import('@google-cloud/bigquery').BigQuery} BQClient */
+
+
+const NODE_ENV = process.env.NODE_ENV || "prod";
 const u = require("ak-tools");
 const schemas = require("./bigquery-schemas.js");
 const log = require("../components/logger.js");
-require("dotenv").config();
-
-/** @typedef { import('../types.js').BigQueryTypes } BQTypes */
-/** @typedef {import('@google-cloud/bigquery').BigQuery} BQClient */
 
 // CORE MIDDLEWARE CONTRACT
 /** @typedef {import('../types').Entities} Entities */
@@ -74,6 +74,7 @@ async function main(data, type, tableNames) {
 
 	const table = client.dataset(bigquery_dataset).table(targetTable);
 
+	// @ts-ignore
 	const result = await insertData(data, table, getBigQuerySchema(type));
 	const duration = Date.now() - startTime;
 	result.duration = duration;
@@ -165,6 +166,7 @@ async function verifyOrCreateTables(tableNames) {
 		const tableExists = tables.some((t) => t.id === table);
 		if (!tableExists) {
 			log(`Table ${table} does not exist. creating...`);
+			// @ts-ignore
 			const tableSchema = getBigQuerySchema(type);
 			const [newTable] = await client.dataset(bigquery_dataset).createTable(table, { schema: tableSchema });
 			const [moreTables] = await client.dataset(bigquery_dataset).getTables();
@@ -263,7 +265,7 @@ async function insertData(batch, table, schema) {
 		const [response] = await table.insert(rows, options);
 		result = { status: "success", insertedRows: rows.length, failedRows: 0, destination: "bigQuery" };
 	} catch (error) {
-
+		debugger;
 		if (error.name === "PartialFailureError") {
 			const failedRows = error.errors.length;
 			const insertedRows = batch.length - failedRows;
@@ -279,9 +281,13 @@ async function insertData(batch, table, schema) {
 			};
 			log(`Partial failure`);
 		}
-		batch;
-		debugger;
-		throw error;
+
+		else {
+			throw error;
+		}
+
+
+
 	}
 
 	log("\n\tData insertion complete.\n");
@@ -289,7 +295,7 @@ async function insertData(batch, table, schema) {
 }
 
 /**
- * @param  {Entities} type
+ * @param  {Entities & Endpoints} type
  */
 function getBigQuerySchema(type) {
 	const schemaMappings = {
@@ -372,5 +378,22 @@ function prepareRowsForInsertion(batch, schema) {
 	});
 }
 
+/**
+ * drops all 3 mixpanel tables... this is a destructive operation
+ * @param  {TableNames} tableNames
+ */
+async function dropTables(tableNames) {
+	const [allTables] = await client.dataset(bigquery_dataset).getTables();
+	const targetTables = Object.values(tableNames);
+	// @ts-ignore
+	const tablesToDrop = allTables.filter((table) => targetTables.includes(table.id));
+	const dropPromises = tablesToDrop.map(async (table) => {
+		await table.delete();
+	});
+	const result = await Promise.all(dropPromises);
+	return result;
+}
+
+main.drop = dropTables;
 main.init = initializeBigQuery;
 module.exports = main;

@@ -20,7 +20,7 @@ if (!BASE_URL) throw new Error('BASE_URL is required; mixpanel middleware is not
  * @param  {DATA} data
  * @param  {Endpoints} type
  */
-async function makeRequest(data, type,) {
+async function main(data, type,) {
 	const url = `${BASE_URL}/${type}?verbose=1`;
 	log(`\nrequest to ${shortUrl(url)} with data:\n${pp(data)} ${sep()}`);
 	let result = { status: "born", destination: "mixpanel" };
@@ -62,5 +62,11 @@ function shortUrl(url) {
 	return new URL(url).pathname;
 }
 
-
-module.exports = makeRequest;
+main.init = () => {
+	log(`mixpanel middleware initialized`);
+};
+main.drop = () => {
+	log(`mixpanel tables cannot be dropped...yet`);
+	return { status: "nothing to drop" };
+}
+module.exports = main;

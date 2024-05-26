@@ -1,7 +1,7 @@
 /**
  * parses the incoming data from the SDK
  * @param  {string | Object | Object[]} reqBody
- * @returns {Object[]}
+ * @returns {import('../types').IncomingData}
  */
 function parseSDKData(reqBody) {
 	if (reqBody === undefined) return [];
@@ -66,4 +66,32 @@ function parseSDKData(reqBody) {
 	}
 }
 
-module.exports = { parseSDKData };
+
+/**
+ * takes our flat object data and nests optional fields in a properties object
+ * @param  {import('../types').WarehouseData} data
+ * @param  {import('../types').Schema} schema
+ */
+function schematizeForWarehouse(data, schema) {
+	if (!Array.isArray(data)) data = [data];
+	const schematized = data.map(row => {
+		const newRow = {};
+		const now = new Date().toISOString();
+		newRow["insert_time"] = now;
+		for (const key in row) {
+			const field = schema.find(f => f.name === key);
+			if (field) {
+				newRow[key] = row[key];
+			} else {
+				newRow.properties = newRow.properties || {};
+				newRow.properties[key] = row[key];
+			}
+		}
+		return newRow;
+	});
+
+	return schematized;
+}
+
+
+module.exports = { parseSDKData, schematizeForWarehouse };

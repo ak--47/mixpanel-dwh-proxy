@@ -13,6 +13,10 @@ export type Destinations = "REDSHIFT" | "BIGQUERY" | "SNOWFLAKE" | "MIXPANEL" | 
 
 export type Endpoints = "track" | "engage" | "groups";
 export type Entities = "event" | "user" | "group";
+export type AllEntities = Endpoints & Entities;
+
+export type IncomingData = MixpanelEvent[] | UserUpdate[] | GroupUpdate[];
+export type WarehouseData = FlatEvent[] | FlatUserUpdate[] | FlatGroupUpdate[];
 
 export type MixpanelEvent = {
   event: string;

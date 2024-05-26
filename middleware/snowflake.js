@@ -3,142 +3,442 @@
 SNOWFLAKE MIDDLEWARE
 ----
 */
-
 const snowflake = require('snowflake-sdk');
-const u = require('ak-tools');
 const { prepHeaders, cleanName, checkEnv } = require('../components/inference');
-const log = require('../components/logger.js');
-require('dotenv').config();
+const {schematizeForWarehouse} = require('../components/parser.js');
 
+/** @typedef { import('../types.js').SnowflakeTypes } SnowflakeTypes */
+/** @typedef {import('snowflake-sdk').Connection} SnowflakeConnection */
+
+const NODE_ENV = process.env.NODE_ENV || "prod";
+let MAX_RETRIES = process.env.MAX_RETRIES || 5;
+if (typeof MAX_RETRIES === "string") MAX_RETRIES = parseInt(MAX_RETRIES);
+const u = require("ak-tools");
+const schemas = require("./snowflake-schemas.js");
+const log = require("../components/logger.js");
+
+
+
+// CORE MIDDLEWARE CONTRACT
+/** @typedef {import('../types').Entities} Entities */
+/** @typedef {import('../types').Endpoints} Endpoints */
+/** @typedef {import('../types').TableNames} TableNames */
+/** @typedef {import('../types').Schema} Schema */
+/** @typedef {import('../types').InsertResult} InsertResult */
+// MIXPANEL DATA
+/** @typedef {import('../types').FlatEvent} Event */
+/** @typedef {import('../types').FlatUserUpdate} UserUpdate */
+/** @typedef {import('../types').FlatGroupUpdate} GroupUpdate */
+/** @typedef {Event[] | UserUpdate[] | GroupUpdate[]} DATA */
+/** @typedef {import('../types.js').WarehouseData} WarehouseData  */
+
+
+
+//these vars should be cached and only run once when the server starts
+/** @type {SnowflakeConnection} */
+let connection;
+let snowflake_account;
+let snowflake_user;
+let snowflake_password;
+let snowflake_database;
+let snowflake_schema;
+let snowflake_warehouse;
+let snowflake_role;
+let snowflake_access_url;
+let isConnectionReady;
+let isDatasetReady;
+let areTablesReady;
 
 /**
- * Main Function: Inserts data into Snowflake
- * @param {import('../types.js').Schema} schema
- * @param {import('../types.js').csvBatch[]} batches
- * @param {import('../types.js').JobConfig} PARAMS
- * @returns {Promise<import('../types.js').WarehouseUploadResult>}
+ * Main function to handle BigQuery data insertion
+ * this function is called in the main server.js file 
+ * and will be called repeatedly as clients stream data in (from client-side SDKs)
+ * @param  {DATA} data
+ * @param  {Endpoints} type
+ * @param  {TableNames} tableNames
+ * @return {Promise<InsertResult>}
+ *
  */
-async function loadToSnowflake(schema, batches, PARAMS) {
-	let {
-		snowflake_account = '',
-		snowflake_user = '',
-		snowflake_password = '',
-		snowflake_database = '',
-		snowflake_schema = '',
-		snowflake_warehouse = '',
-		snowflake_role = '',
-		snowflake_access_url = '',
-		dry_run = false,
-		verbose = false,
-		table_name = ''
-	} = PARAMS;
+async function main(data, type, tableNames) {
+	const startTime = Date.now();
+	const init = await initializeSnowflake(tableNames);
+	const { eventTable, userTable, groupTable } = tableNames;
+	// now we know the tables is ready and we can insert data; this runs repeatedly
+	let targetTable;
+	switch (type) {
+		case "track":
+			targetTable = eventTable;
+			break;
+		case "engage":
+			targetTable = userTable;
+			break;
+		case "groups":
+			targetTable = groupTable;
+			break;
+		default:
+			throw new Error("Invalid Record Type");
+	}
+	const schema = getSnowflakeSchema(type);
+	const preparedData = schematizeForWarehouse(data, schema);
+	const result = await insertWithRetry(preparedData, targetTable, schema);
+	const duration = Date.now() - startTime;
+	result.duration = duration;
+	return result;
+}
 
+async function initializeSnowflake(tableNames) {
+	// ENV STUFF
+	({
+		snowflake_account,
+		snowflake_user,
+		snowflake_password,
+		snowflake_database,
+		snowflake_schema,
+		snowflake_warehouse,
+		snowflake_role,
+		snowflake_access_url,
+		// @ts-ignore
+		MAX_RETRIES
+	} = process.env);
+
+	const { eventTable, userTable, groupTable } = tableNames;
+	if (!isConnectionReady) {
+		isConnectionReady = await createSnowflakeConnection();
+		if (!isConnectionReady) throw new Error("snowflake credentials verification failed.");
+		isConnectionReady = await connection.isValidAsync();
+		if (!isConnectionReady) throw new Error("snowflake connection is in an invalid state.");
+	}
+
+	if (!isDatasetReady) {
+		isDatasetReady = await verifyOrCreateDatabase();
+		if (!isDatasetReady) throw new Error("Dataset verification or creation failed.");
+	}
+
+	if (!areTablesReady) {
+		const tableCheckResults = await verifyOrCreateTables([["track", eventTable], ["user", userTable], ["group", groupTable]]);
+		areTablesReady = tableCheckResults.every(result => result);
+		if (!areTablesReady) throw new Error("Table verification or creation failed.");
+	}
+
+	return [isConnectionReady, isDatasetReady, areTablesReady];
+}
+
+async function createSnowflakeConnection() {
+	if (!snowflake_account) throw new Error('snowflake_account is required');
+	if (!snowflake_user) throw new Error('snowflake_user is required');
+	if (!snowflake_password) throw new Error('snowflake_password is required');
 	if (!snowflake_database) throw new Error('snowflake_database is required');
-	if (!table_name) throw new Error('table_name is required');
+	if (!snowflake_schema) throw new Error('snowflake_schema is required');
+	if (!snowflake_warehouse) throw new Error('snowflake_warehouse is required');
+	if (!snowflake_role) throw new Error('snowflake_role is required');
+	snowflake.configure({ keepAlive: true, logLevel: 'WARN' });
+	log('Attempting to connect to Snowflake...');
 
-	const conn = await createSnowflakeConnection(PARAMS);
-	const isConnectionValid = await conn.isValidAsync();
-	if (typeof isConnectionValid === 'boolean' && !isConnectionValid) throw new Error(`Invalid Snowflake credentials`);
+	return new Promise((resolve, reject) => {
+		const attemptConnect = snowflake.createConnection({
+			account: snowflake_account,
+			username: snowflake_user,
+			password: snowflake_password,
+			database: snowflake_database,
+			schema: snowflake_schema,
+			warehouse: snowflake_warehouse,
+			role: snowflake_role,
+			accessUrl: snowflake_access_url,
+		});
 
-	table_name = cleanName(table_name);
+		attemptConnect.connect((err, conn) => {
+			if (err) {
+				log('Failed to connect to Snowflake:', err);
+				debugger;
+				resolve(false);
+			} else {
+				log('Successfully connected to Snowflake');
+				connection = conn;
+				resolve(true);
+			}
+		});
+	});
+}
+
+async function verifyOrCreateDatabase(databaseName = snowflake_database, schemaName = snowflake_schema) {
+	const checkDatabaseQuery = `SELECT COUNT(*) AS count FROM ${databaseName.toUpperCase()}.INFORMATION_SCHEMA.DATABASES WHERE DATABASE_NAME = '${databaseName.toUpperCase()}'`;
+	const checkResult = await executeSQL(checkDatabaseQuery, undefined, true);
+
+	let databaseExists = false;
 	// @ts-ignore
-	schema = schema.map(prepareSnowflakeSchema);
-	const columnHeaders = schema.map(field => field.name);
-	const headerMap = prepHeaders(columnHeaders);
-	const headerReplacePairs = prepHeaders(columnHeaders, true);
-	// @ts-ignore
-	schema = schema.map(field => u.rnVals(field, headerReplacePairs));
-	batches = batches.map(batch => batch.map(row => u.rnKeys(row, headerMap)));
+	if (checkResult?.message?.includes(`Database '${snowflake_database}' does not exist or not authorized.`)) databaseExists = false;
+	else if (checkResult?.[0]?.COUNT > 0) databaseExists = true;
+	else debugger;
 
-	const snowflake_table_schema = schemaToSnowflakeSQL(schema);
-	/** @type {import('../types.js').InsertResult[]} */
-	const upload = [];
 
-	let createTableSQL;
-	try {
-		// Create or replace table
-		createTableSQL = `CREATE OR REPLACE TABLE ${table_name} (${snowflake_table_schema})`;
-		const tableCreation = await executeSQL(conn, createTableSQL);
-		log(`Table ${table_name} created (or replaced) successfully`);
-	}
-	catch (error) {
-		log(`Error creating table; ${error.message}`, error, { createTableSQL });
-		debugger;
+	if (!databaseExists) {
+		log(`Database ${databaseName} does not exist. Creating...`);
+
+		const createDatabaseQuery = `CREATE OR REPLACE DATABASE ${databaseName}`;
+		const databaseCreationResult = await executeSQL(createDatabaseQuery);
+
+		log(`Database ${databaseName} created.`);
+
+	} else {
+		log(`Database ${databaseName} already exists.`);
 	}
 
+	// Check if the schema exists
+	const checkSchemaQuery = `SHOW SCHEMAS IN DATABASE ${databaseName}`;
+	const checkSchemaResult = await executeSQL(checkSchemaQuery, undefined, true);
+	if (!Array.isArray(checkSchemaResult)) throw new Error("Failed to check schema existence");
+	const schemaExists = checkSchemaResult?.some(schema => schema.name === schemaName.toUpperCase());
 
-	log('\n\n');
+	if (!schemaExists) {
+		log(`Schema ${schemaName} does not exist in database ${databaseName}. Creating...`);
 
-	let currentBatch = 0;
-	if (dry_run) {
-		log('Dry run requested. Skipping Snowflake upload.');
-		return { schema, database: snowflake_database, table: table_name || "no table", upload: [], logs: log.getLog() };
+		const createSchemaQuery = `CREATE SCHEMA ${databaseName}.${schemaName}`;
+		const schemaCreateResult = await executeSQL(createSchemaQuery);
+
+		log(`Schema ${schemaName} created in database ${databaseName}.`);
+	} else {
+		log(`Schema ${schemaName} already exists in database ${databaseName}.`);
 	}
-	// Insert data
-	for (const batch of batches) {
-		currentBatch++;
-		const [insertSQL, hasVariant] = prepareInsertSQL(schema, table_name);
-		let data;
-		if (hasVariant) {
-			//variant columns need to be stringified as an ENTIRE ROW
-			//this is weird
-			data = [batch.map(row => prepareComplexRows(row, schema))].map(rows => JSON.stringify(rows));
+
+	// Set the current schema
+	const useSchemaQuery = `USE SCHEMA ${databaseName}.${schemaName}`;
+	const useSchemaResult = await executeSQL(useSchemaQuery);
+
+	log(`Using schema ${schemaName} in database ${databaseName}.`);
+
+	return true;
+}
+
+async function verifyOrCreateTables(tableNames) {
+	const results = [];
+
+	for (const [type, table] of tableNames) {
+		const tableExists = await checkIfTableExists(table);
+		if (!tableExists) {
+			log(`Table ${table} does not exist. Creating...`);
+			const tableSchema = getSnowflakeSchema(type);
+			const sqlSchema = tableSchema.map(f => `${f.name} ${f.type}`).join(", ");
+			const tableCreateResult = await createTable(table, sqlSchema);
+			const tableReady = await waitForTableToBeReady(table);
+			if (tableReady) {
+				results.push(true);
+				log(`Table ${table} created and ready.`);
+			} else {
+				results.push(false);
+				log(`Failed to create table ${table}`);
+			}
+		} else {
+			log(`Table ${table} already exists.`);
+			const tableReady = await waitForTableToBeReady(table);
+			if (tableReady) {
+				results.push(true);
+			} else {
+				results.push(false);
+			}
 		}
-		else {
-			//datasets without variant columns can be inserted as an array of arrays (flatMap)
-			data = batch.map(row => schema.map(f => formatBindValue(row[f.name], f.type))); //.map(row => JSON.stringify(row));
-		}
-		const start = Date.now();
-		try {
-			const task = await executeSQL(conn, insertSQL, data);
-			const duration = Date.now() - start;
-			const insertedRows = task?.[0]?.['number of rows inserted'] || 0;
-			const failedRows = batch.length - insertedRows;
-			upload.push({ duration, status: 'success', insertedRows, failedRows });
-			if (log.isVerbose()) u.progress(`\tsent batch ${u.comma(currentBatch)} of ${u.comma(batches.length)} batches`);
-		} catch (error) {
-			const duration = Date.now() - start;
-			upload.push({ status: 'error', errorMessage: error.message, errors: error, duration });
-			log(`Error inserting batch ${currentBatch}: ${error.message}`, error, batch);
-		}
 	}
-	log('\n\nData insertion complete; Terminating Connection...\n');
 
-	const logs = log.getLog();
-	/** @type {import('../types.js').WarehouseUploadResult} */
-	const uploadJob = { schema, database: snowflake_database, table: table_name || "", upload, logs };
+	return results;
+}
 
-
-
-	//conn.destroy(terminationHandler);
-	// @ts-ignore
-	conn.destroy();
-
-
-	return uploadJob;
+async function checkIfTableExists(tableName) {
+	const checkTableQuery = `SHOW TABLES LIKE '${tableName}'`;
+	const result = await executeSQL(checkTableQuery);
+	if (!result) return false;
+	if (Array.isArray(result)) {
+		if (result.length === 0) return false;
+		if (result.length > 0) return true;
+	}
+	debugger;
+	return false;
 
 }
 
+async function createTable(tableName, schema) {
+	const createTableQuery = `CREATE OR REPLACE TABLE ${tableName} (${schema})`;
+	const createTableResult = await executeSQL(createTableQuery);
+	return createTableResult;
+}
 
 /**
- * @param  {import('../types.js').SchemaField} field
+ * insert data into BigQuery
+ * @param  {WarehouseData} batch
+ * @param  {string} table
+ * @param  {Schema} schema
+ * @return {Promise<InsertResult>}
  */
-function prepareSnowflakeSchema(field) {
-	const { name, type } = field;
-	let snowflakeType = type.toUpperCase();
-	switch (type) {
-		case 'INT': snowflakeType = 'NUMBER'; break;
-		case 'FLOAT': snowflakeType = 'FLOAT'; break;
-		case 'STRING': snowflakeType = 'VARCHAR'; break;
-		case 'BOOLEAN': snowflakeType = 'BOOLEAN'; break;
-		case 'DATE': snowflakeType = 'DATE'; break;
-		case 'TIMESTAMP': snowflakeType = 'TIMESTAMP'; break;
-		case 'JSON': snowflakeType = 'VARIANT'; break;
-		case 'ARRAY': snowflakeType = 'VARIANT'; break;
-		case 'OBJECT': snowflakeType = 'VARIANT'; break;
-		// Add other type mappings as necessary
+async function insertData(batch, table, schema) {
+	log("Starting data insertion...\n");
+	let result = { status: "born", dest: "snowflake" };
+	// Insert data
+	const [insertSQL, hasVariant] = prepareInsertSQL(schema, table);
+	let data;
+	if (hasVariant) {
+		//variant columns need to be stringified as an ENTIRE ROW
+		//this is weird
+		data = [batch.map(row => prepareComplexRows(row, schema))].map(rows => JSON.stringify(rows));
 	}
-	return { name, type: snowflakeType };
+	else {
+		//datasets without variant columns can be inserted as an array of arrays (flatMap)
+		data = batch.map(row => schema.map(f => formatBindValue(row[f.name], f.type))); //.map(row => JSON.stringify(row));
+	}
+	const start = Date.now();
+	try {
+		log(`Inserting ${batch.length} rows into ${table}...`);
+		const task = await executeSQL(insertSQL, data);
+		const duration = Date.now() - start;
+		const insertedRows = task?.[0]?.['number of rows inserted'] || 0;
+		const failedRows = batch.length - insertedRows;
+		result = { ...result, duration, status: 'success', insertedRows, failedRows };
+
+	} catch (error) {
+		const duration = Date.now() - start;
+		result = { ...result, status: 'error', errorMessage: error.message, errors: error, duration, insertedRows: 0, failedRows: batch.length };
+		log(`Error inserting: ${error.message}`, error, batch);
+	}
+
+	log('\n\nData insertion complete;\n\n');
+	return result;
+
+}
+
+async function insertWithRetry(batch, table, schema) {
+	let attempt = 0;
+	const backoff = (attempt) => Math.min(1000 * 2 ** attempt, 30000); // Exponential backoff
+
+	// @ts-ignore
+	while (attempt < MAX_RETRIES) {
+		try {
+			const result = await insertData(batch, table, schema);
+			return result;
+		} catch (error) {
+			if (error.message === 'TableLockedError') {
+				const waitTime = backoff(attempt);
+				log(`Retry attempt ${attempt + 1}: waiting for ${waitTime} ms before retrying...`);
+				await new Promise(resolve => setTimeout(resolve, waitTime));
+				attempt++;
+
+			} else {
+				throw error;
+			}
+		}
+	}
+
+	throw new Error(`Failed to insert data after ${MAX_RETRIES} attempts`);
+}
+
+
+
+async function insertDummyRecord(tableName, dummyRecord) {
+	const columns = Object.keys(dummyRecord).join(", ");
+	const values = Object.values(dummyRecord).map(value => `'${value}'`).join(", ");
+	const insertQuery = `INSERT INTO ${tableName} (${columns}) VALUES (${values})`;
+	const result = await executeSQL(insertQuery, undefined, true);
+	// @ts-ignore
+	const { code, data } = result;
+	const { errorCode, sqlState, type } = data;
+	if (code !== "000904") return false;
+	if (errorCode !== "000904") return false;
+	if (sqlState !== "42000") return false;
+	if (type !== "COMPILATION") return false;
+	return true;
+
+}
+
+async function waitForTableToBeReady(tableName, retries = 20, maxInsertAttempts = 20) {
+	log(`Checking if table ${tableName} exists...`);
+
+	for (let i = 0; i < retries; i++) {
+		const exists = await checkIfTableExists(tableName);
+		if (exists) {
+			log(`Table ${tableName} is confirmed to exist on attempt ${i + 1}.`);
+			break;
+		}
+		const sleepTime = Math.random() * (5000 - 1000) + 1000;
+		log(`Sleeping for ${sleepTime} ms; waiting for table existence; attempt ${i + 1}`);
+		await new Promise(resolve => setTimeout(resolve, sleepTime));
+
+		if (i === retries - 1) {
+			log(`Table ${tableName} does not exist after ${retries} attempts.`);
+			return false;
+		}
+	}
+
+	log(`Checking if table ${tableName} is ready for operations...`);
+	for (let insertAttempt = 0; insertAttempt < maxInsertAttempts; insertAttempt++) {
+		try {
+			const dummyRecord = { "dummy_column": "dummy_value" };
+			const dummyInsert = await insertDummyRecord(tableName, dummyRecord);
+			if (dummyInsert) {
+				log(`Table ${tableName} is ready for operations`);
+				return true;
+			}
+			if (!dummyInsert) {
+				log(`Table ${tableName} is not ready for operations`);
+				throw "retry";
+			}
+
+		} catch (error) {
+			const sleepTime = Math.random() * (5000 - 1000) + 1000;
+			log(`sleeping ${sleepTime} ms for table ${tableName}, retrying... attempt #${insertAttempt + 1}`);
+			await new Promise(resolve => setTimeout(resolve, sleepTime));
+
+		}
+	}
+	return false;
+}
+
+// HELPERS
+function getSnowflakeSchema(type) {
+	const schemaMappings = {
+		event: schemas.eventsSchema,
+		track: schemas.eventsSchema,
+		user: schemas.usersSchema,
+		engage: schemas.usersSchema,
+		group: schemas.groupsSchema,
+		groups: schemas.groupsSchema,
+	};
+	const schema = schemaMappings[type];
+	if (!schema) throw new Error("Invalid Record Type");
+	return schema;
+}
+
+/**
+ * Executes a given SQL query on the Snowflake connection
+ * optional binds for bulk insert
+ * @param {string} sql 
+ * @param {snowflake.Binds} [binds] pass binds to bulk insert
+ * @param {boolean} [neverThrow] whether to throw an error if the query fails
+ * @returns {Promise<snowflake.StatementStatus | any[] | undefined | snowflake.SnowflakeError>}
+ */
+function executeSQL(sql, binds, neverThrow = false) {
+	return new Promise((resolve, reject) => {
+		const options = { sqlText: sql };
+		if (binds) options.binds = binds;
+		if (binds) options.parameters = { MULTI_STATEMENT_COUNT: 1 };
+		connection.execute({
+			...options,
+			complete: (err, stmt, rows) => {
+				if (err) {
+					if (neverThrow) {
+						resolve(err);
+						return;
+					}
+
+					const { code, data, message, name, sqlState, isFatal } = err;
+					if (code?.toString() === "000625" && name === "OperationFailedError" && message.includes('has locked table')) {
+						reject(new Error('TableLockedError')); // Signals a retry
+						return;
+					}
+					debugger;
+					log(`Failed executing SQL: ${err.message}`, err, options);
+					reject(err);
+				} else {
+					resolve(rows);
+				}
+			}
+		});
+	});
 }
 
 /**
@@ -199,7 +499,6 @@ function formatBindValue(value, type) {
 	}
 }
 
-
 /**
  * Creates an appropriate SQL statement for inserting data into a Snowflake table
  * VARIANT types are handled by parsing JSON and flattening the data, primitives use VALUES (?,?,?) 
@@ -238,145 +537,26 @@ function prepareInsertSQL(schema, tableName) {
 	}
 }
 
-/**
- * Translates a schema definition to Snowflake SQL data types
- * @param {import('../types.js').Schema} schema 
- * @returns {string}
- */
-function schemaToSnowflakeSQL(schema) {
-	return schema.map(field => {
-		let type = field.type.toUpperCase();
-		switch (type) {
-			case 'INT': type = 'NUMBER'; break;
-			case 'FLOAT': type = 'FLOAT'; break;
-			case 'STRING': type = 'VARCHAR'; break;
-			case 'BOOLEAN': type = 'BOOLEAN'; break;
-			case 'DATE': type = 'DATE'; break;
-			case 'TIMESTAMP': type = 'TIMESTAMP'; break;
-			case 'JSON': type = 'VARIANT'; break;
-			// Add other type mappings as necessary
-		}
-		return `${field.name} ${type}`;
-	}).join(', ');
-}
+
 
 /**
- * Executes a given SQL query on the Snowflake connection
- * ? https://docs.snowflake.com/en/developer-guide/node-js/nodejs-driver-execute#binding-an-array-for-bulk-insertions
- * @param {snowflake.Connection} conn 
- * @param {string} sql 
- * @param {snowflake.Binds} [binds] pass binds to bulk insert
- * @returns {Promise<snowflake.StatementStatus | any[] | undefined>}
+ * Drops the specified tables in Snowflake. This is a destructive operation.
+ * @param {TableNames} tableNames
  */
-function executeSQL(conn, sql, binds) {
-	return new Promise((resolve, reject) => {
-
-
-		const options = { sqlText: sql };
-		if (binds) options.binds = binds;
-		if (binds) options.parameters = { MULTI_STATEMENT_COUNT: 1 };
-
-		conn.execute({
-			...options,
-			complete: (err, stmt, rows) => {
-				if (err) {
-					log(`Failed executing SQL: ${err.message}`, err, options);
-					reject(err);
-				} else {
-					resolve(rows);
-				}
-			}
-		});
+async function dropTables(tableNames) {
+	const targetTables = Object.values(tableNames);
+	const dropPromises = targetTables.map(async (table) => {
+		const dropTableQuery = `DROP TABLE IF EXISTS ${table}`;
+		const dropTableResult = await executeSQL(dropTableQuery);
+		return dropTableResult;
 	});
-
-
-}
-
-/**
- * Establishes a connection to Snowflake
- * @param {import('../types.js').JobConfig} PARAMS 
- * @returns {Promise<snowflake.Connection>}
- */
-async function createSnowflakeConnection(PARAMS) {
-	log('Attempting to connect to Snowflake...');
-	const { snowflake_account = "",
-		snowflake_user = "",
-		snowflake_password = "",
-		snowflake_database = "",
-		snowflake_schema = "",
-		snowflake_warehouse = "",
-		snowflake_role = "",
-		snowflake_access_url = ""
-	} = PARAMS;
-	if (!snowflake_account) throw new Error('snowflake_account is required');
-	if (!snowflake_user) throw new Error('snowflake_user is required');
-	if (!snowflake_password) throw new Error('snowflake_password is required');
-	if (!snowflake_database) throw new Error('snowflake_database is required');
-	if (!snowflake_schema) throw new Error('snowflake_schema is required');
-	if (!snowflake_warehouse) throw new Error('snowflake_warehouse is required');
-	if (!snowflake_role) throw new Error('snowflake_role is required');
-
-	//todo: dev logging configuration
-	snowflake.configure({ keepAlive: true, logLevel: 'WARN' });
-
-
-	return new Promise((resolve, reject) => {
-		const connection = snowflake.createConnection({
-			account: snowflake_account,
-			username: snowflake_user,
-			password: snowflake_password,
-			database: snowflake_database,
-			schema: snowflake_schema,
-			warehouse: snowflake_warehouse,
-			role: snowflake_role,
-			accessUrl: snowflake_access_url,
-		});
-
-
-		connection.connect((err, conn) => {
-			if (err) {
-				log('Failed to connect to Snowflake:', err);
-				debugger;
-				reject(err);
-			} else {
-				log('Successfully connected to Snowflake');
-				resolve(conn);
-			}
-		});
-	});
+	const results = await Promise.all(dropPromises);
+	log(`Dropped tables: ${targetTables.join(', ')}`);
+	return results.flat();
 }
 
 
-function terminationHandler(err, conn) {
-	if (err) {
-		console.error('Unable to disconnect: ' + err.message);
-	} else {
-		log('\tDisconnected connection with id: ' + conn.getId());
-	}
-}
 
-/**
- * Properly formats a value for SQL statement.
- * @param {any} value The value to be formatted.
- * @returns {string} The formatted value for SQL.
- */
-function formatSQLValue(value) {
-	if (value === null || value === "" || value === undefined || value === "null") {
-		return 'NULL';
-	} else if (u.isJSONStr(value)) {
-		const parsed = JSON.parse(value);
-		if (Array.isArray(parsed)) {
-			const formattedArray = parsed.map(item =>
-				item === null ? 'NULL' : (typeof item === 'string' ? `'${item.replace(/'/g, "''")}'` : item)
-			);
-			return `ARRAY_CONSTRUCT(${formattedArray.join(", ")})`;
-		}
-		return `PARSE_JSON('${value.replace(/'/g, "''")}')`;
-	} else if (typeof value === 'string') {
-		return `'${value.replace(/'/g, "''")}'`;
-	} else {
-		return value;
-	}
-}
-
-module.exports = loadToSnowflake;
+main.drop = dropTables;
+main.init = initializeSnowflake;
+module.exports = main;

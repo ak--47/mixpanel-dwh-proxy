@@ -3,11 +3,14 @@
 	"jest.runMode": "on-demand",
 	"js/ts.implicitProjectConfig.checkJs": true,
 	"cSpell.words": [
+		"datname",
 		"DWHs",
 		"funcignore",
 		"keyfile",
 		"Runtimes",
-		"samconfig"
+		"samconfig",
+		"schemaname",
+		"tablename"
 	]
   }
   
