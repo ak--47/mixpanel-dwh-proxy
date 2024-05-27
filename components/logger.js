@@ -3,7 +3,7 @@ let logBuffer = [];
 let verbose = false;
 let cli_mode = false;
 let LOG_MAX_SIZE = 1000000;
-
+let logging = true;
 
 function setVerbose(value) {
 	verbose = value;
@@ -14,12 +14,20 @@ function setCliMode(value) {
 	verbose = value;
 }
 
+function setLogging(value) {
+	logging = value;
+}
+
 function getCliMode() {
 	return cli_mode;
 }
 
 function getVerbose() {
 	return verbose;
+}
+
+function getStatus() {
+	return logging;
 }
 
 /**
@@ -61,6 +69,7 @@ function print(message, data, severity) {
  * @param {any} [data]
  */
 function log(message, ...data) {
+	if (!logging) return;
 	if (!cli_mode) message = message?.trim();
 	let props = {};
 
@@ -113,4 +122,6 @@ log.isVerbose = getVerbose;
 log.getLog = getLog;
 log.cli = setCliMode;
 log.isCli = getCliMode;
+log.status = getStatus;
+log.logging = setLogging;
 module.exports = log;

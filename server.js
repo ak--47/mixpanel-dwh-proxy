@@ -116,28 +116,6 @@ for (const { name, api: middleware } of activeMiddleware) {
 
 }
 
-async function handleDrop(req, res) {
-	const results = [];
-
-
-	await Promise.all(activeMiddleware.map(async middleware => {
-		const { name, api } = middleware;
-		try {
-			log(`DROPPING TABLES in ${name}`);
-			const status = await api.drop(tableNames);
-			results.push({ name, status });
-			return { name, status };
-		}
-		catch (e) {
-			log(`error dropping in ${name}`, e);
-			results.push({ name, status: e.message });
-			return { name, status: `ERROR: ${e.message}` };
-		}
-	}));
-
-	res.send(results);
-}
-
 /**
  * this function handles the incoming data from the Mixpanel JS lib
  * via .track() .people.set() and .group.set()
@@ -164,7 +142,7 @@ async function handleMixpanelIncomingReq(type, req, res) {
 		}
 	});
 
-	const flatData = formatForWarehouse(clone(data));
+	const flatData = formatForWarehouse(data);
 
 	const results = [];
 
@@ -195,6 +173,30 @@ async function handleMixpanelIncomingReq(type, req, res) {
 	return results;
 }
 
+
+async function handleDrop(req, res) {
+	const results = [];
+	if (NODE_ENV === "prod") return res.status(400).send("Cannot drop tables in production");
+
+	const drops = await Promise.all(activeMiddleware.map(async middleware => {
+		const { name, api } = middleware;
+		try {
+			log(`DROPPING TABLES in ${name}`);
+			const status = await api.drop(tableNames);
+			results.push({ name, status });
+			return { name, status };
+		}
+		catch (e) {
+			log(`error dropping in ${name}`, e);
+			results.push({ name, status: e.message });
+			return { name, status: `ERROR: ${e.message}` };
+		}
+	}));
+
+	res.send(results);
+}
+
+
 /**
  * prep data for each warehouse by basically flattening it + cleaning key names
  * also normalize certain values
@@ -203,7 +205,8 @@ async function handleMixpanelIncomingReq(type, req, res) {
  * @returns {WarehouseData}
  */
 function formatForWarehouse(data) {
-	return data.map(record => {
+	const copy = clone(data);
+	return copy.map(record => {
 		//get rid of all $'s for /engage requests
 		for (const key in record) {
 			if (key.startsWith('$')) {

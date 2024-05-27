@@ -21,6 +21,7 @@ if (!BASE_URL) throw new Error('BASE_URL is required; mixpanel middleware is not
  * @param  {Endpoints} type
  */
 async function main(data, type,) {
+	const start = Date.now();
 	const url = `${BASE_URL}/${type}?verbose=1`;
 	log(`\nrequest to ${shortUrl(url)} with data:\n${pp(data)} ${sep()}`);
 	let result = { status: "born", destination: "mixpanel" };
@@ -35,7 +36,8 @@ async function main(data, type,) {
 
 		const { status = 0, statusText = "" } = request;
 		const response = await request.json();
-
+		const duration = Date.now() - start;
+		response.duration = duration;
 		log(`got ${status} ${statusText} from ${shortUrl(url)}:\n${pp(response)} ${sep()}`);
 
 		return response;
