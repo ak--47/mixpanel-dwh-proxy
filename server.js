@@ -147,7 +147,7 @@ async function handleMixpanelIncomingReq(type, req, res) {
 	const results = [];
 
 	try {
-		await Promise.all(activeMiddleware.map(async middleware => {
+		const flush = await Promise.all(activeMiddleware.map(async middleware => {
 			const { name, api } = middleware;
 			try {
 				log(`sending ${type} data to ${name}`);

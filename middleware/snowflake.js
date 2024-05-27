@@ -48,15 +48,24 @@ let snowflake_schema;
 let snowflake_warehouse;
 let snowflake_role;
 let snowflake_access_url;
-let snowflake_stage;
-let snowflake_pipe;
+
 let isConnectionReady;
 let isDatasetReady;
 let areTablesReady;
+
+//required for copy into
+let snowflake_stage;
 let isStageReady;
+
+// required for pipelines
+let snowflake_pipe;
 let isPipeReady;
 let isSnowPipeReady;
 let snowpipeAPI;
+let snowflake_private_key;
+let snowflake_region;
+let snowflake_provider;
+
 let transport = 'none';
 
 
@@ -125,6 +134,9 @@ async function initializeSnowflake(tableNames) {
 		snowflake_access_url,
 		snowflake_stage,
 		snowflake_pipe,
+		snowflake_private_key,
+		snowflake_region,
+		snowflake_provider,
 		// @ts-ignore
 		MAX_RETRIES
 	} = process.env);
@@ -135,11 +147,13 @@ async function initializeSnowflake(tableNames) {
 		if (!isConnectionReady) throw new Error("snowflake credentials verification failed.");
 		isConnectionReady = await connection.isValidAsync();
 		if (!isConnectionReady) throw new Error("snowflake connection is in an invalid state.");
+		log("Snowflake connection is ready.");
 	}
 
 	if (!isDatasetReady) {
 		isDatasetReady = await verifyOrCreateDatabase();
 		if (!isDatasetReady) throw new Error("Dataset verification or creation failed.");
+		log("Snowflake dataset is ready.");
 	}
 
 	if (!areTablesReady) {
@@ -189,7 +203,7 @@ async function createSnowpipeConnection() {
 	try {
 		log("Creating Snowpipe connection...");
 
-		snowpipeAPI = await createSnowpipeAPI(snowflake_user, snowflake_password, snowflake_account);
+		snowpipeAPI = await createSnowpipeAPI(snowflake_user, snowflake_private_key, snowflake_account, snowflake_region, snowflake_provider);
 		log("Snowpipe connection created.");
 		return true;
 	}
@@ -237,7 +251,6 @@ async function createSnowflakeConnection() {
 		});
 	});
 }
-
 
 
 async function verifyOrCreateDatabase(databaseName = snowflake_database, schemaName = snowflake_schema) {
@@ -367,7 +380,7 @@ async function verifyOrCreatePipe(tableNames) {
                 )
                 FILE_FORMAT = (TYPE = 'JSON');
             `;
-			await executeSQL(createPipeQuery);
+			const createPipeResult = await executeSQL(createPipeQuery);
 			log(`Pipe ${snowflake_pipe}_${table} created.`);
 		} else {
 			log(`Pipe ${snowflake_pipe}_${table} already exists.`);
@@ -375,9 +388,6 @@ async function verifyOrCreatePipe(tableNames) {
 	}
 	return true;
 }
-
-
-
 
 
 /**
@@ -514,9 +524,8 @@ async function insertWithPipe(batch, table, schema) {
 	// Use the Snowpipe API to upload the file to the Snowflake stage
 	const pipeName = `${snowflake_database}.${snowflake_schema}.${snowflake_pipe}_${table}`;
 	try {
-		const response = await snowpipeAPI.insertFile(pipeName, [FILE_PATH], true);
+		const response = await snowpipeAPI.insertFile(pipeName, [FILE_PATH]);
 		log(`File ${FILE_PATH} uploaded to Snowpipe ${pipeName}`);
-		log(response);
 		result.status = 'success';
 		result.insertedRows = batch.length;
 		result.failedRows = 0;
@@ -570,12 +579,12 @@ async function insertWithRetry(batch, table, schema) {
  * @return {Promise<InsertResult>}
  */
 async function flushStageToTable(table, schema, stageName) {
-    log("Flushing all files in stage to table...");
+	log("Flushing all files in stage to table...");
 
-    const columnMappings = schema.map(col => `$1:${col.name.toLowerCase()} AS ${col.name}`).join(', ');
+	const columnMappings = schema.map(col => `$1:${col.name.toLowerCase()} AS ${col.name}`).join(', ');
 
-    // Generate the COPY INTO command
-    const copyCommand = `
+	// Generate the COPY INTO command
+	const copyCommand = `
         COPY INTO ${table}
         FROM (
             SELECT ${columnMappings}
@@ -584,14 +593,14 @@ async function flushStageToTable(table, schema, stageName) {
         FILE_FORMAT = (TYPE = 'JSON')
     `;
 
-    try {
-        const copyResult = await executeSQL(copyCommand);
-        log(`All files in stage ${stageName} have been copied to table ${table}`);
-        return { status: 'success', dest: "Snowflake", message: `All files in stage ${stageName} have been copied to table ${table}`  };
-    } catch (error) {
-        log(`Error copying data from stage to table: ${error.message}`, error);
-        throw error;
-    }
+	try {
+		const copyResult = await executeSQL(copyCommand);
+		log(`All files in stage ${stageName} have been copied to table ${table}`);
+		return { status: 'success', dest: "Snowflake", message: `All files in stage ${stageName} have been copied to table ${table}` };
+	} catch (error) {
+		log(`Error copying data from stage to table: ${error.message}`, error);
+		throw error;
+	}
 }
 
 /**
@@ -600,19 +609,19 @@ async function flushStageToTable(table, schema, stageName) {
  * @return {Promise<InsertResult>}
  */
 async function deleteAllFilesFromStage(stageName) {
-    log("Deleting all files from stage...");
+	log("Deleting all files from stage...");
 
-    // Generate the REMOVE command
-    const removeCommand = `REMOVE ${stageName}/*`;
+	// Generate the REMOVE command
+	const removeCommand = `REMOVE ${stageName}/*`;
 
-    try {
-        const removeStageFilesResult = await executeSQL(removeCommand);
-        log(`All files have been removed from stage ${stageName}`);
-        return { status: 'success', message: `All files have been removed from stage ${stageName}`, dest: "Snowflake" };
-    } catch (error) {
-        log(`Error removing files from stage: ${error.message}`, error);
-        throw error;
-    }
+	try {
+		const removeStageFilesResult = await executeSQL(removeCommand);
+		log(`All files have been removed from stage ${stageName}`);
+		return { status: 'success', message: `All files have been removed from stage ${stageName}`, dest: "Snowflake" };
+	} catch (error) {
+		log(`Error removing files from stage: ${error.message}`, error);
+		throw error;
+	}
 }
 
 async function checkIfTableExists(tableName) {
