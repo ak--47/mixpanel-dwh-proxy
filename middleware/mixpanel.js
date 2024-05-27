@@ -67,6 +67,6 @@ main.init = () => {
 };
 main.drop = () => {
 	log(`mixpanel tables cannot be dropped...yet`);
-	return { status: "nothing to drop" };
+	return "nothing to drop";
 }
 module.exports = main;

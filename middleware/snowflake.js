@@ -4,14 +4,13 @@ SNOWFLAKE MIDDLEWARE
 ----
 */
 const snowflake = require('snowflake-sdk');
-const { prepHeaders, cleanName, checkEnv } = require('../components/inference');
+const { createSnowpipeAPI } = require('snowflake-ingest-node');
 const { schematizeForWarehouse } = require('../components/parser.js');
 const path = require('path');
 const { writeFile, unlink } = require('fs/promises');
 const { uid } = require('ak-tools');
 const { tmpdir } = require('os');
 const dayjs = require('dayjs');
-
 
 
 /** @typedef { import('../types.js').SnowflakeTypes } SnowflakeTypes */
@@ -38,8 +37,6 @@ const log = require("../components/logger.js");
 /** @typedef {import('../types').FlatData} FlatData */
 
 
-
-
 //these vars should be cached and only run once when the server starts
 /** @type {SnowflakeConnection} */
 let connection;
@@ -58,6 +55,10 @@ let isDatasetReady;
 let areTablesReady;
 let isStageReady;
 let isPipeReady;
+let isSnowPipeReady;
+let snowpipeAPI;
+let transport = 'none';
+
 
 /**
  * Main function to handle Snowflake data insertion
@@ -91,11 +92,19 @@ async function main(data, type, tableNames) {
 	const schema = getSnowflakeSchema(type);
 	const preparedData = schematizeForWarehouse(data, schema);
 	let result;
-	if (snowflake_stage && snowflake_pipe) {
-		result = await insertStreaming(preparedData, targetTable, schema);
-	}
-	else {
-		result = await insertWithRetry(preparedData, targetTable, schema);
+
+	switch (transport) {
+		case "insert":
+			result = await insertWithRetry(preparedData, targetTable, schema);
+			break;
+		case "copy":
+			result = await copyIntoData(preparedData, targetTable, schema);
+			break;
+		case "pipe":
+			result = await insertWithPipe(preparedData, targetTable, schema);
+			break;
+		default:
+			throw new Error("Invalid transport method");
 	}
 
 	const duration = Date.now() - startTime;
@@ -137,29 +146,61 @@ async function initializeSnowflake(tableNames) {
 		const tableCheckResults = await verifyOrCreateTables([["track", eventTable], ["user", userTable], ["group", groupTable]]);
 		areTablesReady = tableCheckResults.every(result => result);
 		if (!areTablesReady) throw new Error("Table verification or creation failed.");
+		transport = "insert";
+		log("using INSERT + binds transport method.");
 	}
 
 	const result = [isConnectionReady, isDatasetReady, areTablesReady];
 
-	//for streaming inserts
-	if (snowflake_stage && snowflake_pipe) {
+	//stage uses copy into
+	if (snowflake_stage) {
 		if (!isStageReady) {
 			const stageCheckResults = await verifyOrCreateStage();
 			isStageReady = stageCheckResults;
 			result.push(isStageReady);
-
+			transport = "copy";
+			log("using COPY INTO transport method.");
 		}
+	}
 
+	//pipe uses a streaming something...
+	if (snowflake_pipe) {
 		if (!isPipeReady) {
 			const pipeCheckResults = await verifyOrCreatePipe(tableNames);
 			isPipeReady = pipeCheckResults;
 			result.push(isPipeReady);
+			transport = "pipe";
+			log("using SNOWPIPE transport method.");
 		}
 
-		return result;
+		if (!isSnowPipeReady) {
+			isSnowPipeReady = await createSnowpipeConnection();
+			result.push(isSnowPipeReady);
+
+		}
+	}
+
+	return result;
+}
+
+
+//todo auth is bad here... needs priv key
+async function createSnowpipeConnection() {
+	try {
+		log("Creating Snowpipe connection...");
+
+		snowpipeAPI = await createSnowpipeAPI(snowflake_user, snowflake_password, snowflake_account);
+		log("Snowpipe connection created.");
+		return true;
+	}
+	catch (error) {
+		log("Failed to create Snowpipe connection:", error);
+		dropTables;
+		return false;
 	}
 }
 
+// main snowflake connection
 async function createSnowflakeConnection() {
 	if (!snowflake_account) throw new Error('snowflake_account is required');
 	if (!snowflake_user) throw new Error('snowflake_user is required');
@@ -196,6 +237,8 @@ async function createSnowflakeConnection() {
 		});
 	});
 }
+
+
 
 async function verifyOrCreateDatabase(databaseName = snowflake_database, schemaName = snowflake_schema) {
 	const checkDatabaseQuery = `SELECT COUNT(*) AS count FROM ${databaseName.toUpperCase()}.INFORMATION_SCHEMA.DATABASES WHERE DATABASE_NAME = '${databaseName.toUpperCase()}'`;
@@ -278,34 +321,22 @@ async function verifyOrCreateTables(tableNames) {
 	return results;
 }
 
-async function checkIfTableExists(tableName) {
-	const checkTableQuery = `SHOW TABLES LIKE '${tableName}'`;
-	const result = await executeSQL(checkTableQuery);
-	if (!result) return false;
-	if (Array.isArray(result)) {
-		if (result.length === 0) return false;
-		if (result.length > 0) return true;
-	}
-	debugger;
-	return false;
-
-}
-
-async function createTable(tableName, schema) {
-	const createTableQuery = `CREATE OR REPLACE TABLE ${tableName} (${schema})`;
-	const createTableResult = await executeSQL(createTableQuery);
-	return createTableResult;
-}
-
 async function verifyOrCreateStage() {
 	const checkStageQuery = `SHOW STAGES LIKE '${snowflake_stage}'`;
 	const result = await executeSQL(checkStageQuery);
 	if (!Array.isArray(result)) throw new Error("Failed to check stage existence");
 	if (!result || result.length === 0) {
 		log(`Stage ${snowflake_stage} does not exist. Creating...`);
-		const createStageQuery = `CREATE OR REPLACE STAGE ${snowflake_stage}`;
-		const createStageResult = await executeSQL(createStageQuery);
+		const createStageQuery = `CREATE OR REPLACE STAGE ${snowflake_stage} FILE_FORMAT = (TYPE = 'JSON') DIRECTORY = (ENABLE = TRUE)`;
+		const stageCreatedResult = await executeSQL(createStageQuery);
 		log(`Stage ${snowflake_stage} created.`);
+
+		// Grant necessary permissions
+		const grantReadQuery = `GRANT READ ON STAGE ${snowflake_stage} TO ROLE ${snowflake_role}`;
+		const grantWriteQuery = `GRANT WRITE ON STAGE ${snowflake_stage} TO ROLE ${snowflake_role}`;
+		const readPermsResult = await executeSQL(grantReadQuery);
+		const writePermsResult = await executeSQL(grantWriteQuery);
+		log(`Granted READ and WRITE on stage ${snowflake_stage} to role ${snowflake_role}`);
 	} else {
 		log(`Stage ${snowflake_stage} already exists.`);
 	}
@@ -313,83 +344,44 @@ async function verifyOrCreateStage() {
 }
 
 async function verifyOrCreatePipe(tableNames) {
-	const checkPipeQuery = `SHOW PIPES LIKE '${snowflake_pipe}'`;
-	const result = await executeSQL(checkPipeQuery);
-	if (!Array.isArray(result)) throw new Error("Failed to check pipe existence");
-	if (!result || result.length === 0) {
-		log(`Pipe ${snowflake_pipe} does not exist. Creating...`);
-		const { eventTable, userTable, groupTable } = tableNames;
-		const allTables = Object.entries(tableNames); // Ensure to verifyOrCreatePipe for all 3 tables
+	const { eventTable, userTable, groupTable } = tableNames;
+	const allTables = Object.entries(tableNames); // Ensure to verifyOrCreatePipe for all 3 tables
 
-		for (const [type, table] of allTables) {
+	for (const [type, table] of allTables) {
+		const checkPipeQuery = `SHOW PIPES LIKE '${snowflake_pipe}_${table}'`;
+		const result = await executeSQL(checkPipeQuery);
+		if (!Array.isArray(result) || result.length === 0) {
+			log(`Pipe ${snowflake_pipe}_${table} does not exist. Creating...`);
+
 			const schema = getSnowflakeSchema(type.split('Table').shift());
 			const columnMappings = schema
 				.map(col => `$1:${col.name.toLowerCase()} AS ${col.name}`)
 				.join(', ');
 
 			const createPipeQuery = `
-			CREATE OR REPLACE PIPE ${snowflake_pipe}_${table} AS
-			COPY INTO ${table}
-			FROM (
-				SELECT ${columnMappings}
-				FROM @${snowflake_stage}
-			)
-			FILE_FORMAT = (TYPE = 'JSON');
-		`;
+                CREATE OR REPLACE PIPE ${snowflake_pipe}_${table} AS
+                COPY INTO ${table}
+                FROM (
+                    SELECT ${columnMappings}
+                    FROM @${snowflake_stage}
+                )
+                FILE_FORMAT = (TYPE = 'JSON');
+            `;
+			await executeSQL(createPipeQuery);
 			log(`Pipe ${snowflake_pipe}_${table} created.`);
+		} else {
+			log(`Pipe ${snowflake_pipe}_${table} already exists.`);
 		}
-	} else {
-		log(`Pipe ${snowflake_pipe} already exists.`);
 	}
 	return true;
 }
 
 
 
-/**
- * insert data into snowflake streaming style
- * ? https://docs.snowflake.com/en/user-guide/data-load-snowpipe-streaming-overview
- * @param  {WarehouseData} batch
- * @param  {string} table
- * @param  {Schema} schema
- * @return {Promise<InsertResult>}
- */
-async function insertStreaming(batch, table, schema) {
-	log("Starting data insertion using Snowpipe...\n");
-	let result = { status: "born", dest: "snowflake" };
 
-	const FILE_PATH = path.resolve(TEMP_DIR, TODAY, "-", `${uid(42)}.json`);
-
-	// Prepare data to be uploaded to the stage
-	const dataToUpload = JSON.stringify(batch);
-
-	// Write data to a temporary file
-	const localWrite = await writeFile(FILE_PATH, dataToUpload);
-
-	// Upload the file to the Snowflake stage
-	const putCommand = `PUT file://${FILE_PATH} @${snowflake_stage}`;
-	try {
-		await executeSQL(putCommand);
-		log(`File ${FILE_PATH} uploaded to stage ${snowflake_stage}`);
-	} catch (error) {
-		log(`Error uploading file to stage: ${error.message}`, error);
-		throw error;
-	} finally {
-		// Remove the temporary file
-		const localDelete = await unlink(FILE_PATH);
-	}
-
-	// Snowpipe will automatically ingest the file from the stage into the target table
-	result.status = 'success';
-	result.insertedRows = batch.length;
-	result.failedRows = 0;
-
-	log("Data insertion using Snowpipe complete.\n");
-	return result;
-}
 
 /**
- * insert data into snowflake
+ * insert data into snowflake; the most basic way
  * @param  {WarehouseData} batch
  * @param  {string} table
  * @param  {Schema} schema
@@ -430,6 +422,121 @@ async function insertData(batch, table, schema) {
 
 }
 
+/**
+ * insert data into snowflake using stages and copy into
+ * @param  {WarehouseData} batch
+ * @param  {string} table
+ * @param  {Schema} schema
+ * @return {Promise<InsertResult>}
+ */
+async function copyIntoData(batch, table, schema) {
+	log("Starting data insertion using Snowpipe...\n");
+	let result = { status: "born", dest: "snowflake" };
+
+	const FILE_PATH = path.resolve(TEMP_DIR, `${TODAY}-${uid(42)}.json`);
+	const fileName = path.basename(FILE_PATH);
+
+	// Prepare data to be uploaded to the stage
+	const dataToUpload = batch.map(record => JSON.stringify(record)).join('\n');
+
+	// Write data to a temporary file
+	const writeFileResult = await writeFile(FILE_PATH, dataToUpload);
+
+	// Use the PUT command to upload the file to the Snowflake stage
+	const stageName = `@${snowflake_stage}`;
+	const putCommand = `PUT file://${FILE_PATH} ${stageName}`;
+	try {
+		const putResult = await executeSQL(putCommand);
+		log(`File ${FILE_PATH} uploaded to stage ${stageName}`);
+	} catch (error) {
+		log(`Error uploading file to stage: ${error.message}`, error);
+		throw error;
+	}
+
+	// Generate the column mappings for the COPY INTO command
+	const columnMappings = schema.map(col => `$1:${col.name.toLowerCase()} AS ${col.name}`).join(', ');
+
+	//todo: CONSIDER CALLING COPY INTO ONLY ~5% of the time
+	// instead we would call flushStageToTable every 5% of the time and deleteAllFilesFromStage
+
+	// Use the COPY INTO command to load the data from the stage into the table
+	const copyCommand = `
+	  COPY INTO ${table}
+	  FROM (
+		SELECT ${columnMappings}
+		FROM ${stageName}/${fileName}
+	  )
+	  FILE_FORMAT = (TYPE = 'JSON')
+	`;
+	try {
+		const copyIntoResult = await executeSQL(copyCommand);
+		log(`Data copied from stage ${stageName} into table ${table}`);
+		result.status = 'success';
+		result.insertedRows = batch.length;
+		result.failedRows = 0;
+
+		const removeCommand = `REMOVE ${stageName}/${fileName}`;
+		const removeFileResult = await executeSQL(removeCommand);
+		log(`File ${fileName} removed from stage ${stageName}`);
+
+	} catch (error) {
+		log(`Error copying data into table: ${error.message}`, error);
+		throw error;
+	} finally {
+		// Remove the temporary file
+		const removeLocalFileResult = await unlink(FILE_PATH);
+	}
+
+	log("Data insertion using Snowpipe complete.\n");
+	return result;
+}
+
+
+/**
+ * an attempt to use snowpipe to stream data into snowflake
+ * ? https://docs.snowflake.com/en/user-guide/data-load-snowpipe-streaming-overview
+ * @param  {WarehouseData} batch
+ * @param  {string} table
+ * @param  {Schema} schema
+ */
+async function insertWithPipe(batch, table, schema) {
+	log("Starting data insertion using Snowpipe...\n");
+	let result = { status: "born", dest: "snowflake" };
+
+	const FILE_PATH = path.resolve(TEMP_DIR, `${TODAY}-${uid(42)}.json`);
+
+	// Prepare data to be uploaded to the stage
+	const dataToUpload = batch.map(record => JSON.stringify(record)).join('\n');
+
+	// Write data to a temporary file
+	await writeFile(FILE_PATH, dataToUpload);
+
+	// Use the Snowpipe API to upload the file to the Snowflake stage
+	const pipeName = `${snowflake_database}.${snowflake_schema}.${snowflake_pipe}_${table}`;
+	try {
+		const response = await snowpipeAPI.insertFile(pipeName, [FILE_PATH], true);
+		log(`File ${FILE_PATH} uploaded to Snowpipe ${pipeName}`);
+		log(response);
+		result.status = 'success';
+		result.insertedRows = batch.length;
+		result.failedRows = 0;
+	} catch (error) {
+		log(`Error uploading file to Snowpipe: ${error.message}`, error);
+		throw error;
+	} finally {
+		// Remove the temporary file
+		const removeFileResult = await unlink(FILE_PATH);
+	}
+
+	log("Data insertion using Snowpipe complete.\n");
+	return result;
+}
+
+/**
+ * @param  {WarehouseData} batch
+ * @param  {string} table
+ * @param  {Schema} schema
+ */
 async function insertWithRetry(batch, table, schema) {
 	let attempt = 0;
 	const backoff = (attempt) => Math.min(1000 * 2 ** attempt, 30000); // Exponential backoff
@@ -455,7 +562,77 @@ async function insertWithRetry(batch, table, schema) {
 	throw new Error(`Failed to insert data after ${MAX_RETRIES} attempts`);
 }
 
+/**
+ * Flush all files in a stage to a specified table
+ * @param {string} table - The name of the table to copy data into
+ * @param {Schema} schema - The schema of the table
+ * @param {string} stageName - The name of the stage
+ * @return {Promise<InsertResult>}
+ */
+async function flushStageToTable(table, schema, stageName) {
+    log("Flushing all files in stage to table...");
 
+    const columnMappings = schema.map(col => `$1:${col.name.toLowerCase()} AS ${col.name}`).join(', ');
+
+    // Generate the COPY INTO command
+    const copyCommand = `
+        COPY INTO ${table}
+        FROM (
+            SELECT ${columnMappings}
+            FROM ${stageName}
+        )
+        FILE_FORMAT = (TYPE = 'JSON')
+    `;
+
+    try {
+        const copyResult = await executeSQL(copyCommand);
+        log(`All files in stage ${stageName} have been copied to table ${table}`);
+        return { status: 'success', dest: "Snowflake", message: `All files in stage ${stageName} have been copied to table ${table}`  };
+    } catch (error) {
+        log(`Error copying data from stage to table: ${error.message}`, error);
+        throw error;
+    }
+}
+
+/**
+ * Delete all files from a specified stage
+ * @param {string} stageName - The name of the stage
+ * @return {Promise<InsertResult>}
+ */
+async function deleteAllFilesFromStage(stageName) {
+    log("Deleting all files from stage...");
+
+    // Generate the REMOVE command
+    const removeCommand = `REMOVE ${stageName}/*`;
+
+    try {
+        const removeStageFilesResult = await executeSQL(removeCommand);
+        log(`All files have been removed from stage ${stageName}`);
+        return { status: 'success', message: `All files have been removed from stage ${stageName}`, dest: "Snowflake" };
+    } catch (error) {
+        log(`Error removing files from stage: ${error.message}`, error);
+        throw error;
+    }
+}
+
+async function checkIfTableExists(tableName) {
+	const checkTableQuery = `SHOW TABLES LIKE '${tableName}'`;
+	const result = await executeSQL(checkTableQuery);
+	if (!result) return false;
+	if (Array.isArray(result)) {
+		if (result.length === 0) return false;
+		if (result.length > 0) return true;
+	}
+	debugger;
+	return false;
+
+}
+
+async function createTable(tableName, schema) {
+	const createTableQuery = `CREATE OR REPLACE TABLE ${tableName} (${schema})`;
+	const createTableResult = await executeSQL(createTableQuery);
+	return createTableResult;
+}
 
 async function insertDummyRecord(tableName, dummyRecord) {
 	const columns = Object.keys(dummyRecord).join(", ");
@@ -515,6 +692,7 @@ async function waitForTableToBeReady(tableName, retries = 20, maxInsertAttempts 
 	}
 	return false;
 }
+
 
 // HELPERS
 function getSnowflakeSchema(type) {
@@ -665,45 +843,31 @@ function prepareInsertSQL(schema, tableName) {
 	}
 }
 
-
-
 /**
  * Drops the specified tables in Snowflake. This is a destructive operation.
  * @param {TableNames} tableNames
  */
 async function dropTables(tableNames) {
-	const targetTables = Object.values(tableNames);
-	const dropTablePromises = targetTables.map(async (table) => {
+	const results = [];
+	const dropTablePromises = Object.values(tableNames).map(async (table) => {
 		const dropTableQuery = `DROP TABLE IF EXISTS ${table}`;
 		const dropTableResult = await executeSQL(dropTableQuery);
-		return dropTableResult;
+		results.push(dropTableResult);
+		const dropPipeQuery = `DROP PIPE IF EXISTS ${snowflake_pipe}_${table}`;
+		const dropPipeResult = await executeSQL(dropPipeQuery);
+		results.push(dropPipeResult);
 	});
 
-	let dropPipePromise = () => Promise.resolve(null);
-	if (snowflake_pipe) {
-		// @ts-ignore
-		dropPipePromise = async () => {
-			const dropPipeQuery = `DROP PIPE IF EXISTS ${snowflake_pipe}`;
-			const dropPipeResult = await executeSQL(dropPipeQuery);
-			return dropPipeResult;
-		};
-	}
+	await Promise.all(dropTablePromises);
 
-	let dropStagePromise = () =>  Promise.resolve(null);
-	if (snowflake_stage) {
-		// @ts-ignore
-		dropStagePromise = async () => {
-			const dropStageQuery = `DROP STAGE IF EXISTS ${snowflake_stage}`;
-			const dropStageResult = await executeSQL(dropStageQuery);
-			return dropStageResult;
-		};
-	}
+	// Drop stage and pipe
+	const dropStageQuery = `DROP STAGE IF EXISTS ${snowflake_stage}`;
+	const dropStageResult = await executeSQL(dropStageQuery);
+	results.push(dropStageResult);
 
-	const dropResults = await Promise.all([...dropTablePromises, dropPipePromise(), dropStagePromise()]);
-
-	log(`Dropped tables: ${targetTables.join(', ')}. Dropped pipe: ${snowflake_pipe}. Dropped stage: ${snowflake_stage}.`);
-	return dropResults.flat();
+	return results.flat();
 }
+
 
 
 

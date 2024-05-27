@@ -1,4 +1,5 @@
 module.exports = function validate(PARAMS = { ...process.env }) {
+
 	for (const key in PARAMS) {
 		if (PARAMS[key] === undefined) delete PARAMS[key];
 		else if (PARAMS[key] === '') delete PARAMS[key];

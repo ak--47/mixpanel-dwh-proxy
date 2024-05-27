@@ -162,6 +162,7 @@ export type InsertResult = {
   errors?: any[]; // Any errors encountered during the operation
   errorMessage?: string; // Error message if the operation failed
   meta?: any; // Additional metadata
+  message?: string; // Message from the operation
 };
 
 export type logEntry = StringOnlyTuple | StringObjectTuple;
