@@ -165,7 +165,25 @@ async function verifyOrCreateTables(tableNames) {
 			log(`Table ${table} does not exist. creating...`);
 			// @ts-ignore
 			const tableSchema = getBigQuerySchema(type);
-			const [newTable] = await client.dataset(bigquery_dataset).createTable(table, { schema: tableSchema });
+
+			/** @type {import('@google-cloud/bigquery').TableMetadata} */
+			const tableMetaData = {
+                schema: tableSchema,
+				timePartitioning: {
+                    type: 'DAY',
+                    field: type === "track" ? "event_time" : "insert_time"
+                },
+                clustering: {
+                    fields: [] // needs to be populated
+                }
+            };
+
+			if (type === "track") tableMetaData?.clustering?.fields?.push("event")
+			if (type === "user") tableMetaData?.clustering?.fields?.push("distinct_id")
+			if (type === "group") tableMetaData?.clustering?.fields?.push("group_id")
+			
+			
+			const [newTable] = await client.dataset(bigquery_dataset).createTable(table, tableMetaData);
 			const [moreTables] = await client.dataset(bigquery_dataset).getTables();
 			const moreTableExists = moreTables.some((t) => t.id === table);
 			if (!moreTableExists) {

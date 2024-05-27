@@ -22,7 +22,7 @@ if (typeof MAX_RETRIES === "string") MAX_RETRIES = parseInt(MAX_RETRIES);
 /** @typedef {import('../types').SchematizedData} WarehouseData */
 /** @typedef {import('../types').FlatData} FlatData */
 
-//these vars should be cached and only run once when the server starts
+// Cached variables to run once when the server starts
 /** @type {RedshiftDataClient} */
 let redshiftClient;
 let redshift_workgroup;
@@ -40,7 +40,7 @@ let areTablesReady;
  * Main function to handle Redshift data insertion
  * this function is called in the main server.js file 
  * and will be called repeatedly as clients stream data in (from client-side SDKs)
- * @param  {WarehouseData} data
+ * @param  {FlatData} data
  * @param  {Endpoints} type
  * @param  {TableNames} tableNames
  * @return {Promise<InsertResult>}
@@ -50,7 +50,7 @@ async function main(data, type, tableNames) {
 	const init = await initializeRedshift(tableNames);
 	const { eventTable, userTable, groupTable } = tableNames;
 
-	// now we know the tables are ready and we can insert data; this runs repeatedly
+	// Determine the target table based on the record type
 	let targetTable;
 	switch (type) {
 		case "track":
@@ -75,7 +75,7 @@ async function main(data, type, tableNames) {
 }
 
 async function initializeRedshift(tableNames) {
-	// ENV STUFF
+	// Environment variables
 	({
 		redshift_workgroup,
 		redshift_database,
@@ -89,6 +89,7 @@ async function initializeRedshift(tableNames) {
 	} = process.env);
 
 	const { eventTable, userTable, groupTable } = tableNames;
+
 	if (!isClientReady) {
 		isClientReady = await createRedshiftClient();
 		if (!isClientReady) throw new Error("Redshift client creation failed.");
@@ -115,17 +116,34 @@ async function createRedshiftClient() {
 	};
 	if (redshift_session_token) credentials.sessionToken = redshift_session_token;
 
-	/** @type {import('@aws-sdk/client-redshift-data').RedshiftDataClientConfig} */
 	const clientConfig = { region: redshift_region, credentials };
 
 	redshiftClient = new RedshiftDataClient(clientConfig);
 
 	try {
-		const authentication = await verifyRedshiftCredentials(redshiftClient);
+		await verifyRedshiftCredentials(redshiftClient);
 		log('Redshift client created and credentials are valid.');
 		return true;
 	} catch (error) {
 		log('Failed to verify Redshift credentials:', error);
+		return false;
+	}
+}
+
+async function verifyRedshiftCredentials(client) {
+	const sql = 'SELECT 1';
+	const command = new ExecuteStatementCommand({
+		Sql: sql,
+		Database: redshift_database,
+		WorkgroupName: redshift_workgroup
+	});
+
+	try {
+		await client.send(command);
+		log('Redshift credentials are valid');
+		return true;
+	} catch (error) {
+		log(`Error verifying Redshift credentials: ${error.message}`, error);
 		return false;
 	}
 }
@@ -153,23 +171,18 @@ async function verifyOrCreateTables(tableNames) {
 			log(`Table ${table} does not exist. Creating...`);
 			const tableSchema = getRedshiftSchema(type);
 			const sqlSchema = tableSchema.map(f => `${f.name} ${f.type}`).join(", ");
-			const tableCreateResult = await createTable(table, sqlSchema);
+			await createTable(table, sqlSchema);
 			const tableReady = await waitForTableToBeReady(table);
+			results.push(tableReady);
 			if (tableReady) {
-				results.push(true);
 				log(`Table ${table} created and ready.`);
 			} else {
-				results.push(false);
 				log(`Failed to create table ${table}`);
 			}
 		} else {
 			log(`Table ${table} already exists.`);
 			const tableReady = await waitForTableToBeReady(table);
-			if (tableReady) {
-				results.push(true);
-			} else {
-				results.push(false);
-			}
+			results.push(tableReady);
 		}
 	}
 
@@ -184,42 +197,27 @@ async function checkIfTableExists(tableName) {
 
 async function createTable(tableName, schema) {
 	const createTableQuery = `CREATE OR REPLACE TABLE ${redshift_schema_name}.${tableName} (${schema})`;
-	const createTableResult = await executeSQL(createTableQuery);
-	return createTableResult;
+	return await executeSQL(createTableQuery);
 }
 
-/**
- * insert data into Redshift
- * @param  {WarehouseData} batch
- * @param  {string} table
- * @param  {Schema} schema
- * @return {Promise<InsertResult>}
- */
 async function insertData(batch, table, schema) {
 	log("Starting data insertion...\n");
 	let result = { status: "born", dest: "redshift" };
 
 	const columnNames = schema.map(f => f.name).join(", ");
-	let valuesArray = [];
-	for (const row of batch) {
-		let rowValues = schema.map(field => {
-			let value = row[field.name];
-			return formatSQLValue(value, field.type);
-		}).join(", ");
-		valuesArray.push(`(${rowValues})`);
-	}
+	const valuesArray = batch.map(row => {
+		const rowValues = schema.map(field => formatSQLValue(row[field.name], field.type)).join(", ");
+		return `(${rowValues})`;
+	});
 	const valuesString = valuesArray.join(", ");
 	const insertSQL = `INSERT INTO ${redshift_schema_name}.${table} (${columnNames}) VALUES ${valuesString}`;
 
 	const start = Date.now();
 	try {
 		log(`Inserting ${batch.length} rows into ${table}...`);
-		const task = await executeSQL(insertSQL, true);
+		await executeSQL(insertSQL, true);
 		const duration = Date.now() - start;
-		const insertedRows = task || 0; // If task is null, assume 0 rows inserted
-		const failedRows = batch.length - insertedRows;
-		result = { ...result, duration, status: 'success', insertedRows, failedRows };
-
+		result = { ...result, duration, status: 'success', insertedRows: batch.length, failedRows: 0 };
 	} catch (error) {
 		const duration = Date.now() - start;
 		result = { ...result, status: 'error', errorMessage: error.message, errors: error, duration, insertedRows: 0, failedRows: batch.length };
@@ -234,7 +232,6 @@ async function insertWithRetry(batch, table, schema) {
 	let attempt = 0;
 	const backoff = (attempt) => Math.min(1000 * 2 ** attempt, 30000); // Exponential backoff
 
-	// @ts-ignore
 	while (attempt < MAX_RETRIES) {
 		try {
 			const result = await insertData(batch, table, schema);
@@ -286,18 +283,15 @@ async function waitForTableToBeReady(tableName, retries = 20, maxInsertAttempts 
 				log(`Table ${tableName} is not ready for operations`);
 				throw "retry";
 			}
-
 		} catch (error) {
 			const sleepTime = Math.random() * (5000 - 1000) + 1000;
-			log(`sleeping ${sleepTime} ms for table ${tableName}, retrying... attempt #${insertAttempt + 1}`);
+			log(`Sleeping ${sleepTime} ms for table ${tableName}, retrying... attempt #${insertAttempt + 1}`);
 			await new Promise(resolve => setTimeout(resolve, sleepTime));
-
 		}
 	}
 	return false;
 }
 
-// HELPERS
 function getRedshiftSchema(type) {
 	const schemaMappings = {
 		event: schemas.eventsSchema,
@@ -328,6 +322,7 @@ async function executeSQL(sql, isBatch = false) {
 	try {
 		const statement = await redshiftClient.send(executeCommand);
 		if (!isBatch) return null;
+
 		// Wait for the statement to complete
 		const statementId = statement.Id;
 		const describeCommand = new DescribeStatementCommand({ Id: statementId });
@@ -339,24 +334,21 @@ async function executeSQL(sql, isBatch = false) {
 			if (statementStatus === 'FAILED' || statementStatus === 'ABORTED') {
 				throw new Error(`Statement ${statementStatus}: ${describeResponse.Error}`);
 			}
-			// Wait for a while before checking the status again
 			if (statementStatus !== 'FINISHED') {
 				const waitTime = u.rand(250, 420);
 				log(`Statement ${statementId} is ${statementStatus}. Waiting ${waitTime}ms before checking again...`);
 				await u.sleep(waitTime);
 			}
 		} while (statementStatus !== 'FINISHED');
-		//query is done;
+
 		const { ResultRows = null } = describeResponse;
 		return ResultRows;
 
 	} catch (error) {
-		debugger;
-		console.error('Failed executing SQL:', error);
+		log('Failed executing SQL:', error);
 		throw error;
 	}
 }
-
 
 function formatSQLValue(value, type) {
 	if (value === null || value === undefined || value === "") return 'NULL';
@@ -366,75 +358,38 @@ function formatSQLValue(value, type) {
 		case 'REAL':
 			return parseFloat(value);
 		case 'BOOLEAN':
-			return value.toString().toLowerCase() === 'true' ? 'TRUE' : 'FALSE'; // Ensure boolean conversion
+			return value.toString().toLowerCase() === 'true' ? 'TRUE' : 'FALSE';
 		case 'STRING':
-			return `'${value.replace(/'/g, "''")}'`; // Escape single quotes
 		case 'VARCHAR':
-			return `'${value.replace(/'/g, "''")}'`; // Escape single quotes
 		case 'DATE':
-			return `'${value.replace(/'/g, "''")}'`; // Escape single quotes
 		case 'TIMESTAMP':
-			return `'${value.replace(/'/g, "''")}'`; // Escape single quotes
-		case 'SUPER': // For JSON types
+			return `'${value.replace(/'/g, "''")}'`;
+		case 'SUPER':
 			if (typeof value === 'string') return `'${value.replace(/'/g, "''")}'`;
 			if (typeof value === 'object') return `'${JSON.stringify(value).replace(/'/g, "''")}'`;
 			if (Array.isArray(value)) return `'${JSON.stringify(value).replace(/'/g, "''")}'`;
-			//never should get here
-			debugger;
 		default:
 			return value;
 	}
 }
 
-/**
- * Verifies Redshift credentials by running a simple query
- * @param  {RedshiftDataClient} redshiftClient
- */
-async function verifyRedshiftCredentials(redshiftClient) {
-	const sql = 'SELECT 1';
-	const command = new ExecuteStatementCommand({
-		Sql: sql,
-		Database: redshift_database,
-		WorkgroupName: redshift_workgroup
-	});
-
-	try {
-		await redshiftClient.send(command);
-		log('Redshift credentials are valid');
-		return true;
-	} catch (error) {
-		debugger;
-		log(`Error verifying Redshift credentials:\n${error.message}`, error);
-		return error.message;
-	}
-}
-
-
 async function insertDummyRecord(tableName, dummyRecord) {
-    const columns = Object.keys(dummyRecord).join(", ");
-    const values = Object.values(dummyRecord).map(value => `'${value}'`).join(", ");
-    const insertQuery = `INSERT INTO ${tableName} (${columns}) VALUES (${values})`;
-    const result = await executeSQL(insertQuery, true);
+	const columns = Object.keys(dummyRecord).join(", ");
+	const values = Object.values(dummyRecord).map(value => `'${value}'`).join(", ");
+	const insertQuery = `INSERT INTO ${tableName} (${columns}) VALUES (${values})`;
+	const result = await executeSQL(insertQuery, true);
 
-    // Check if the insertion failed due to a lock or other error
-    if (result instanceof Error && result.message.includes('lock')) {
-        return false; // Signal that the table is not ready
-    }
-    
-    return true;
+	if (result instanceof Error && result.message.includes('lock')) {
+		return false;
+	}
+	return true;
 }
 
-
-/**
- * Drops the specified tables in Redshift. This is a destructive operation.
- * @param {TableNames} tableNames
- */
 async function dropTables(tableNames) {
 	const targetTables = Object.values(tableNames);
 	const dropPromises = targetTables.map(async (table) => {
 		const dropTableQuery = `DROP TABLE IF EXISTS ${redshift_schema_name}.${table}`;
-		const dropTableResult = await executeSQL(dropTableQuery);
-		return dropTableResult;
+		return await executeSQL(dropTableQuery);
 	});
 	const results = await Promise.all(dropPromises);
 	log(`Dropped tables: ${targetTables.join(', ')}`);
@@ -444,4 +399,3 @@ async function dropTables(tableNames) {
 main.drop = dropTables;
 main.init = initializeRedshift;
 module.exports = main;
-

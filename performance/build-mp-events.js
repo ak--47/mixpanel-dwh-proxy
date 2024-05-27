@@ -29,7 +29,7 @@ function generateDataBatch(context, events, done) {
         username: chance.name(),
         race: chance.pickone(races),
         class: chance.pickone(classes),
-		codeword: "HUCKSTER",
+		codeword: "PLUCK",
     };
 
     for (let i = 0; i < batchSize; i++) {
