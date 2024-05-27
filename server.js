@@ -173,7 +173,7 @@ async function handleMixpanelIncomingReq(type, req, res) {
 			const { name, api } = middleware;
 			try {
 				log(`sending ${type} data to ${name}`);
-				const uploadData = middleware.name === 'mixpanel' ? data : flatData;
+				const uploadData = middleware.name === 'mixpanel' ? data : clone(flatData);
 				const status = await api(uploadData, type, tableNames);
 				results.push({ name, status });
 				return { name, status };

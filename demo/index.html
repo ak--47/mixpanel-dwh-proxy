@@ -32,6 +32,9 @@
 	<button id="reset">reset</button>
 	<button id="configStock">configStock</button>
 	<button id="configJSON">configJSON</button>
+	<br /><br /><br />
+	<button id="all"
+		style="font-size: xxx-large;">ALL 🚀</button>
 	<script>
 		const track = document.querySelector('#track');
 		const sendBeacon = document.querySelector('#sendBeacon');
@@ -41,7 +44,8 @@
 		const reset = document.querySelector('#reset');
 		const configStock = document.querySelector('#configStock');
 		const configJSON = document.querySelector('#configJSON');
-
+		const all = document.querySelector('#all');
+		const buttons = [track, sendBeacon, profileSet, groupSet, identify, reset, configStock, configJSON];
 
 		const stockConfig = {
 			api_host: PROXY_URL,
@@ -87,7 +91,19 @@
 		});
 
 		profileSet.addEventListener('click', () => {
-			mixpanel.people.set({ $name: "hello world", "goodbye": "night", ...genObj() }, console.log);
+			if (Math.random() > 0.5) {
+				mixpanel.people.set({ $name: getWord(), "$email": getWord(), ...genObj() }, console.log);
+			}
+			else {
+				mixpanel.people.set_once({ $name: getWord(), "$email": getWord(), ...genObj() }, console.log);
+			}
+			if (Math.random() > 0.5) {
+				mixpanel.people.append(getWord(), getWord(), console.log);
+			}
+			else {
+				mixpanel.people.increment(getWord(), num(), console.log);
+			}
+
 			mixpanel.identify(user_id);
 		});
 
@@ -110,6 +126,15 @@
 		configJSON.addEventListener('click', () => {
 			mixpanel.set_config(jsonConfig, console.log);
 		});
+
+		all.addEventListener('click', () => {
+			if (all.textContent === 'STOP ✋') {
+				stopRandomClicks();
+			} else {
+				startRandomClicks();
+			}
+		});
+
 	</script>
 	<script>
 		function genObj() {
@@ -174,6 +199,28 @@
 
 			return string;
 		};
+
+		// Function to randomly click one of the buttons
+		function randomlyClickButton() {
+			const randomIndex = Math.floor(Math.random() * buttons.length);
+			buttons[randomIndex].click();
+		}
+
+		let randomClickInterval;
+
+		// Function to continuously click buttons with some jitter
+		function startRandomClicks() {
+			all.textContent = 'STOP ✋';
+			const jitter = Math.random() * 100; // Random jitter between 0 and 100ms
+			const interval = num(50, 350) + jitter; // Base interval of  jitter
+			randomClickInterval = setInterval(randomlyClickButton, interval);
+		}
+
+		// Function to stop randomly clicking buttons
+		function stopRandomClicks() {
+			all.textContent = 'ALL 🚀';
+			clearInterval(randomClickInterval);
+		}
 	</script>
 </body>
 
