@@ -29,6 +29,7 @@
 	<button id="profileSet">profile</button>
 	<button id="groupSet">group</button>
 	<button id="identify">identify</button>
+	<button id="reset">reset</button>
 	<button id="configStock">configStock</button>
 	<button id="configJSON">configJSON</button>
 	<script>
@@ -37,8 +38,10 @@
 		const profileSet = document.querySelector('#profileSet');
 		const groupSet = document.querySelector('#groupSet');
 		const identify = document.querySelector('#identify');
+		const reset = document.querySelector('#reset');
 		const configStock = document.querySelector('#configStock');
 		const configJSON = document.querySelector('#configJSON');
+
 
 		const stockConfig = {
 			api_host: PROXY_URL,
@@ -48,9 +51,9 @@
 			batch_flush_interval_ms: 5000,
 			loaded: function (mixpanel) {
 				mixpanel.reset();
-				
+
 				console.log('mixpanel has loaded (stock config)');
-				const ids = `\n\ndevice_id: ${mixpanel.get_property('$device_id')}\n\nuser_id: ${mixpanel.get_property('$user_id')}\n\ndistinct_id: ${mixpanel.get_property('distinct_id')}\n\n`
+				const ids = `\n\ndevice_id: ${mixpanel.get_property('$device_id')}\n\nuser_id: ${mixpanel.get_property('$user_id')}\n\ndistinct_id: ${mixpanel.get_property('distinct_id')}\n\n`;
 				console.log(ids);
 			}
 		};
@@ -66,7 +69,7 @@
 			loaded: function (mixpanel) {
 				mixpanel.reset();
 				console.log('mixpanel has loaded (json config)');
-				const ids = `\n\ndevice_id: ${mixpanel.get_property('$device_id')}\n\nuser_id: ${mixpanel.get_property('$user_id')}\n\ndistinct_id: ${mixpanel.get_property('distinct_id')}\n\n`
+				const ids = `\n\ndevice_id: ${mixpanel.get_property('$device_id')}\n\nuser_id: ${mixpanel.get_property('$user_id')}\n\ndistinct_id: ${mixpanel.get_property('distinct_id')}\n\n`;
 				console.log(ids);
 			},
 		}
@@ -76,24 +79,28 @@
 		mixpanel.init("c87a466527ec2b225e664a837b7cacc2", stockConfig);
 
 		track.addEventListener('click', () => {
-			mixpanel.track('tracked event', { foo: "bar" }, console.log);
+			mixpanel.track(`tracked event - ${getWord()}`, { foo: "bar", ...genObj() }, console.log);
 		});
 
 		sendBeacon.addEventListener('click', () => {
-			mixpanel.track('beacon event', { baz: "qux" }, {transport: 'sendBeacon'}, console.log);
+			mixpanel.track(`beacon event -  ${getWord()}`, { baz: "qux", ...genObj() }, { transport: 'sendBeacon' }, console.log);
 		});
 
 		profileSet.addEventListener('click', () => {
-			mixpanel.people.set({ $name: "hello world", "goodbye": "night" }, console.log);
+			mixpanel.people.set({ $name: "hello world", "goodbye": "night", ...genObj() }, console.log);
 			mixpanel.identify(user_id);
 		});
 
 		groupSet.addEventListener('click', () => {
-			mixpanel.get_group('company_id', "ak").set("$name", "ak's tunes");
+			mixpanel.get_group('company_id', getWord()).set(getWord(), getWord());
 		});
 
 		identify.addEventListener('click', () => {
 			mixpanel.identify(user_id, console.log);
+		});
+
+		reset.addEventListener('click', () => {
+			mixpanel.reset();
 		});
 
 		configStock.addEventListener('click', () => {
@@ -103,8 +110,70 @@
 		configJSON.addEventListener('click', () => {
 			mixpanel.set_config(jsonConfig, console.log);
 		});
+	</script>
+	<script>
+		function genObj() {
+			const obj = {};
+			const keys = num(1, 5);
+			for (let i = 0; i < keys; i++) {
+				obj[getWord()] = getWord();
+			}
+			return obj;
+		};
 
+		function num(min = 1, max = 4) {
+			min = Math.ceil(min);
+			max = Math.floor(max);
+			return Math.floor(Math.random() * (max - min + 1)) + min;
+		};
+		function getWord(words = num(), separator = " ") {
+			const adjs = [
+				"dark", "grim", "swift", "brave", "bold", "fiery", "arcane",
+				"rugged", "calm", "wild", "brisk", "dusty", "mighty", "sly",
+				"old", "ghostly", "frosty", "gilded", "murky", "grand", "sly",
+				"quick", "cruel", "meek", "glum", "drunk", "slick", "bitter",
+				"nimble", "sweet", "tart", "tough"
+			];
 
+			const nouns = [
+				"mage", "inn", "imp", "bard", "witch", "drake", "knight", "brew",
+				"keep", "blade", "beast", "spell", "tome", "crown", "ale", "bard",
+				"joke", "maid", "elf", "orc", "throne", "quest", "scroll", "fey",
+				"pixie", "troll", "giant", "vamp", "ogre", "cloak", "gem", "axe",
+				"armor", "fort", "bow", "lance", "moat", "den"
+			];
+
+			const verbs = [
+				"cast", "charm", "brawl", "brew", "haunt", "sail", "storm", "quest",
+				"joust", "feast", "march", "scheme", "raid", "guard", "duel",
+				"trick", "flee", "prowl", "forge", "explore", "vanish", "summon",
+				"banish", "bewitch", "sneak", "chase", "ride", "fly", "dream", "dance"
+			];
+
+			const adverbs = [
+				"boldly", "bravely", "slyly", "wisely", "fiercely", "stealthily", "proudly", "eagerly",
+				"quietly", "loudly", "heroically", "craftily", "defiantly", "infamously", "cleverly", "dastardly"
+			];
+
+			const continuations = [
+				"and", "of", "in", "on", "under", "over", "beyond", "within", "while", "during", "after", "before",
+				"beneath", "beside", "betwixt", "betwain", "because", "despite", "although", "however", "nevertheless"
+			];
+
+			let string;
+			const cycle = [adjs, nouns, verbs, adverbs, continuations];
+			for (let i = 0; i < words; i++) {
+				const index = i % cycle.length;
+				const word = cycle[index][Math.floor(Math.random() * cycle[index].length)];
+				if (!string) {
+					string = word;
+				} else {
+					string += separator + word;
+				}
+			}
+
+			return string;
+		};
 	</script>
 </body>
 

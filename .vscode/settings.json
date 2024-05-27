@@ -11,7 +11,8 @@
 		"samconfig",
 		"schemaname",
 		"Snowpipe",
-		"tablename"
+		"tablename",
+		"Wrkgrp"
 	]
   }
   

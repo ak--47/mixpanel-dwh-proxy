@@ -33,7 +33,8 @@ let redshift_secret_access_key;
 let redshift_schema_name;
 let redshift_session_token;
 let isClientReady;
-let isDatasetReady;
+let isSchemaReady;
+// let isDatasetReady;
 let areTablesReady;
 
 /**
@@ -88,6 +89,9 @@ async function initializeRedshift(tableNames) {
 		MAX_RETRIES
 	} = process.env);
 
+	// HACK! todo: fix this
+	redshift_schema_name = "public";
+
 	const { eventTable, userTable, groupTable } = tableNames;
 
 	if (!isClientReady) {
@@ -95,10 +99,17 @@ async function initializeRedshift(tableNames) {
 		if (!isClientReady) throw new Error("Redshift client creation failed.");
 	}
 
-	if (!isDatasetReady) {
-		isDatasetReady = await verifyOrCreateDatabase();
-		if (!isDatasetReady) throw new Error("Database verification or creation failed.");
-	}
+	// if (!isDatasetReady) {
+	// 	isDatasetReady = await verifyOrCreateDatabase();
+	// 	if (!isDatasetReady) throw new Error("Database verification or creation failed.");
+	// }
+
+	// if (!isSchemaReady) {
+	// 	isSchemaReady = await verifyOrCreateSchema();
+	// 	if (!isSchemaReady) throw new Error("Schema verification or creation failed.");
+	// }
+
+
 
 	if (!areTablesReady) {
 		const tableCheckResults = await verifyOrCreateTables([["track", eventTable], ["user", userTable], ["group", groupTable]]);
@@ -106,7 +117,7 @@ async function initializeRedshift(tableNames) {
 		if (!areTablesReady) throw new Error("Table verification or creation failed.");
 	}
 
-	return [isClientReady, isDatasetReady, areTablesReady];
+	return [isClientReady, areTablesReady];
 }
 
 async function createRedshiftClient() {
@@ -120,46 +131,19 @@ async function createRedshiftClient() {
 
 	redshiftClient = new RedshiftDataClient(clientConfig);
 
-	try {
-		await verifyRedshiftCredentials(redshiftClient);
-		log('Redshift client created and credentials are valid.');
-		return true;
-	} catch (error) {
-		log('Failed to verify Redshift credentials:', error);
-		return false;
-	}
-}
-
-async function verifyRedshiftCredentials(client) {
-	const sql = 'SELECT 1';
-	const command = new ExecuteStatementCommand({
-		Sql: sql,
-		Database: redshift_database,
-		WorkgroupName: redshift_workgroup
-	});
 
 	try {
-		await client.send(command);
-		log('Redshift credentials are valid');
-		return true;
+		const verifyResult = await executeSQL('SELECT 1', false, "dev");
+		if (verifyResult === 1) {
+			log('Redshift client created and credentials are valid.');
+			return true;
+		}
+		else {
+			throw new Error('Failed to verify Redshift credentials');
+		}
 	} catch (error) {
-		log(`Error verifying Redshift credentials: ${error.message}`, error);
 		return false;
 	}
-}
-
-async function verifyOrCreateDatabase() {
-	const checkDatabaseQuery = `SELECT 1 FROM pg_database WHERE datname = '${redshift_database}'`;
-	const result = await executeSQL(checkDatabaseQuery);
-	if (!result || result.length === 0) {
-		log(`Database ${redshift_database} does not exist. Creating...`);
-		const createDatabaseQuery = `CREATE DATABASE ${redshift_database}`;
-		await executeSQL(createDatabaseQuery);
-		log(`Database ${redshift_database} created.`);
-	} else {
-		log(`Database ${redshift_database} already exists.`);
-	}
-	return true;
 }
 
 async function verifyOrCreateTables(tableNames) {
@@ -171,18 +155,18 @@ async function verifyOrCreateTables(tableNames) {
 			log(`Table ${table} does not exist. Creating...`);
 			const tableSchema = getRedshiftSchema(type);
 			const sqlSchema = tableSchema.map(f => `${f.name} ${f.type}`).join(", ");
-			await createTable(table, sqlSchema);
-			const tableReady = await waitForTableToBeReady(table);
-			results.push(tableReady);
-			if (tableReady) {
-				log(`Table ${table} created and ready.`);
-			} else {
-				log(`Failed to create table ${table}`);
-			}
+			const tableCreationResult = await createTable(table, sqlSchema);
+			// const tableReady = await waitForTableToBeReady(table);
+			results.push(true);
+			// if (tableReady) {
+			// 	log(`Table ${table} created and ready.`);
+			// } else {
+			// 	log(`Failed to create table ${table}`);
+			// }
 		} else {
 			log(`Table ${table} already exists.`);
-			const tableReady = await waitForTableToBeReady(table);
-			results.push(tableReady);
+			// const tableReady = await waitForTableToBeReady(table);
+			results.push(true);
 		}
 	}
 
@@ -190,14 +174,15 @@ async function verifyOrCreateTables(tableNames) {
 }
 
 async function checkIfTableExists(tableName) {
-	const checkTableQuery = `SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = '${redshift_schema_name}' AND tablename = '${tableName}'`;
+	const checkTableQuery = `SELECT tablename FROM pg_catalog.pg_tables WHERE tablename = '${tableName}'`;
 	const result = await executeSQL(checkTableQuery);
-	return result && result.length > 0;
+	return result && result > 0;
 }
 
 async function createTable(tableName, schema) {
-	const createTableQuery = `CREATE OR REPLACE TABLE ${redshift_schema_name}.${tableName} (${schema})`;
-	return await executeSQL(createTableQuery);
+	const createTableQuery = `CREATE TABLE IF NOT EXISTS ${redshift_schema_name}.${tableName} (${schema})`;
+	const createTableResult = await executeSQL(createTableQuery);
+	return createTableResult;
 }
 
 async function insertData(batch, table, schema) {
@@ -213,9 +198,8 @@ async function insertData(batch, table, schema) {
 	const insertSQL = `INSERT INTO ${redshift_schema_name}.${table} (${columnNames}) VALUES ${valuesString}`;
 
 	const start = Date.now();
-	try {
-		log(`Inserting ${batch.length} rows into ${table}...`);
-		await executeSQL(insertSQL, true);
+	try {		
+		const insertResult = await executeSQL(insertSQL, true);
 		const duration = Date.now() - start;
 		result = { ...result, duration, status: 'success', insertedRows: batch.length, failedRows: 0 };
 	} catch (error) {
@@ -232,6 +216,7 @@ async function insertWithRetry(batch, table, schema) {
 	let attempt = 0;
 	const backoff = (attempt) => Math.min(1000 * 2 ** attempt, 30000); // Exponential backoff
 
+	// @ts-ignore
 	while (attempt < MAX_RETRIES) {
 		try {
 			const result = await insertData(batch, table, schema);
@@ -251,46 +236,6 @@ async function insertWithRetry(batch, table, schema) {
 	throw new Error(`Failed to insert data after ${MAX_RETRIES} attempts`);
 }
 
-async function waitForTableToBeReady(tableName, retries = 20, maxInsertAttempts = 20) {
-	log(`Checking if table ${tableName} exists...`);
-
-	for (let i = 0; i < retries; i++) {
-		const exists = await checkIfTableExists(tableName);
-		if (exists) {
-			log(`Table ${tableName} is confirmed to exist on attempt ${i + 1}.`);
-			break;
-		}
-		const sleepTime = Math.random() * (5000 - 1000) + 1000;
-		log(`Sleeping for ${sleepTime} ms; waiting for table existence; attempt ${i + 1}`);
-		await new Promise(resolve => setTimeout(resolve, sleepTime));
-
-		if (i === retries - 1) {
-			log(`Table ${tableName} does not exist after ${retries} attempts.`);
-			return false;
-		}
-	}
-
-	log(`Checking if table ${tableName} is ready for operations...`);
-	for (let insertAttempt = 0; insertAttempt < maxInsertAttempts; insertAttempt++) {
-		try {
-			const dummyRecord = { "dummy_column": "dummy_value" };
-			const dummyInsert = await insertDummyRecord(tableName, dummyRecord);
-			if (dummyInsert) {
-				log(`Table ${tableName} is ready for operations`);
-				return true;
-			}
-			if (!dummyInsert) {
-				log(`Table ${tableName} is not ready for operations`);
-				throw "retry";
-			}
-		} catch (error) {
-			const sleepTime = Math.random() * (5000 - 1000) + 1000;
-			log(`Sleeping ${sleepTime} ms for table ${tableName}, retrying... attempt #${insertAttempt + 1}`);
-			await new Promise(resolve => setTimeout(resolve, sleepTime));
-		}
-	}
-	return false;
-}
 
 function getRedshiftSchema(type) {
 	const schemaMappings = {
@@ -312,16 +257,16 @@ function getRedshiftSchema(type) {
  * @param {boolean} isBatch
  * @returns {Promise<number | any>}
  */
-async function executeSQL(sql, isBatch = false) {
-	const executeCommand = new ExecuteStatementCommand({
-		Sql: sql,
-		Database: redshift_database,
-		WorkgroupName: redshift_workgroup,
-	});
+async function executeSQL(sql, isBatch = false, altDb = "", altWrkgrp = "") {
+	const options = { Sql: sql, Database: redshift_database, WorkgroupName: redshift_workgroup };
+	if (altDb) options.Database = altDb;
+	if (altWrkgrp) options.WorkgroupName = altWrkgrp;
+
+	const executeCommand = new ExecuteStatementCommand(options);
 
 	try {
 		const statement = await redshiftClient.send(executeCommand);
-		if (!isBatch) return null;
+		// if (!isBatch) return null;
 
 		// Wait for the statement to complete
 		const statementId = statement.Id;
@@ -336,7 +281,7 @@ async function executeSQL(sql, isBatch = false) {
 			}
 			if (statementStatus !== 'FINISHED') {
 				const waitTime = u.rand(250, 420);
-				log(`Statement ${statementId} is ${statementStatus}. Waiting ${waitTime}ms before checking again...`);
+				// log(`Statement ${statementId} is ${statementStatus}. Waiting ${waitTime}ms before checking again...`);
 				await u.sleep(waitTime);
 			}
 		} while (statementStatus !== 'FINISHED');
@@ -345,7 +290,8 @@ async function executeSQL(sql, isBatch = false) {
 		return ResultRows;
 
 	} catch (error) {
-		log('Failed executing SQL:', error);
+		log(`Failed executing SQL:\n\n${error.message}\n\n`);
+		debugger;
 		throw error;
 	}
 }
@@ -366,24 +312,14 @@ function formatSQLValue(value, type) {
 			return `'${value.replace(/'/g, "''")}'`;
 		case 'SUPER':
 			if (typeof value === 'string') return `'${value.replace(/'/g, "''")}'`;
-			if (typeof value === 'object') return `'${JSON.stringify(value).replace(/'/g, "''")}'`;
 			if (Array.isArray(value)) return `'${JSON.stringify(value).replace(/'/g, "''")}'`;
+			if (typeof value === 'object') return `'${JSON.stringify(value).replace(/'/g, "''")}'`;
+
 		default:
 			return value;
 	}
 }
 
-async function insertDummyRecord(tableName, dummyRecord) {
-	const columns = Object.keys(dummyRecord).join(", ");
-	const values = Object.values(dummyRecord).map(value => `'${value}'`).join(", ");
-	const insertQuery = `INSERT INTO ${tableName} (${columns}) VALUES (${values})`;
-	const result = await executeSQL(insertQuery, true);
-
-	if (result instanceof Error && result.message.includes('lock')) {
-		return false;
-	}
-	return true;
-}
 
 async function dropTables(tableNames) {
 	const targetTables = Object.values(tableNames);
@@ -399,3 +335,73 @@ async function dropTables(tableNames) {
 main.drop = dropTables;
 main.init = initializeRedshift;
 module.exports = main;
+
+
+//todo this doesn't work
+async function verifyOrCreateSchema() {
+	const checkSchemaQuery = `SELECT schema_name FROM information_schema.schemata WHERE schema_name = '${redshift_schema_name}'`;
+	const result = await executeSQL(checkSchemaQuery);
+	if (!result || result.length === 0) {
+		log(`Schema ${redshift_schema_name} does not exist. Creating...`);
+		const createSchemaQuery = `CREATE SCHEMA ${redshift_schema_name}`;
+		await executeSQL(createSchemaQuery);
+		log(`Schema ${redshift_schema_name} created.`);
+	} else {
+		log(`Schema ${redshift_schema_name} already exists.`);
+	}
+	return true;
+}
+
+
+// async function waitForTableToBeReady(tableName, retries = 20, maxInsertAttempts = 20) {
+// 	log(`Checking if table ${tableName} exists...`);
+
+// 	for (let i = 0; i < retries; i++) {
+// 		const exists = await checkIfTableExists(tableName);
+// 		if (exists) {
+// 			log(`Table ${tableName} is confirmed to exist on attempt ${i + 1}.`);
+// 			break;
+// 		}
+// 		const sleepTime = Math.random() * (5000 - 1000) + 1000;
+// 		log(`Sleeping for ${sleepTime} ms; waiting for table existence; attempt ${i + 1}`);
+// 		await new Promise(resolve => setTimeout(resolve, sleepTime));
+
+// 		if (i === retries - 1) {
+// 			log(`Table ${tableName} does not exist after ${retries} attempts.`);
+// 			return false;
+// 		}
+// 	}
+
+// 	log(`Checking if table ${tableName} is ready for operations...`);
+// 	for (let insertAttempt = 0; insertAttempt < maxInsertAttempts; insertAttempt++) {
+// 		try {
+// 			const dummyRecord = { "dummy_column": "dummy_value" };
+// 			const dummyInsert = await insertDummyRecord(tableName, dummyRecord);
+// 			if (dummyInsert) {
+// 				log(`Table ${tableName} is ready for operations`);
+// 				return true;
+// 			}
+// 			if (!dummyInsert) {
+// 				log(`Table ${tableName} is not ready for operations`);
+// 				throw "retry";
+// 			}
+// 		} catch (error) {
+// 			const sleepTime = Math.random() * (5000 - 1000) + 1000;
+// 			log(`Sleeping ${sleepTime} ms for table ${tableName}, retrying... attempt #${insertAttempt + 1}`);
+// 			await new Promise(resolve => setTimeout(resolve, sleepTime));
+// 		}
+// 	}
+// 	return false;
+// }
+
+// async function insertDummyRecord(tableName, dummyRecord) {
+// 	const columns = Object.keys(dummyRecord).join(", ");
+// 	const values = Object.values(dummyRecord).map(value => `'${value}'`).join(", ");
+// 	const insertQuery = `INSERT INTO ${tableName} (${columns}) VALUES (${values})`;
+// 	const result = await executeSQL(insertQuery, true);
+
+// 	if (result instanceof Error && result.message.includes('lock')) {
+// 		return false;
+// 	}
+// 	return true;
+// }
