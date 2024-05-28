@@ -152,9 +152,9 @@ async function handleMixpanelIncomingReq(type, req, res) {
 			try {
 				log(`sending ${type} data to ${name}`);
 				const uploadData = middleware.name === 'mixpanel' ? data : clone(flatData);
-				const status = await api(uploadData, type, tableNames);
-				results.push({ name, status });
-				return { name, status };
+				const result = await api(uploadData, type, tableNames);
+				results.push({ name, result });
+				return { name, result };
 			}
 			catch (e) {
 				log(`error sending ${type} data to ${name}`, e);
@@ -233,9 +233,16 @@ function formatForWarehouse(data) {
 						delete record.properties[prop];
 					}
 
-					//convert time to ISO string
+					//convert time to ISO string... time might be sec or ms
 					else if (prop === 'time') {
-						record.event_time = dayjs.unix(record.properties.time).toISOString();
+						const timeValue = record.properties.time;
+						if (timeValue.toString().length === 13) {
+							// Unix timestamp in milliseconds
+							record.event_time = dayjs(timeValue).toISOString();
+						} else {
+							// Unix timestamp in seconds
+							record.event_time = dayjs.unix(timeValue).toISOString();
+						}
 						delete record.properties.time;
 					}
 

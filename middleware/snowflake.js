@@ -61,6 +61,7 @@ let isStageReady;
 let snowflake_pipe;
 let isPipeReady;
 let isSnowPipeReady;
+/** @type {import('snowflake-ingest-node').SnowpipeAPI} */
 let snowpipeAPI;
 let snowflake_private_key;
 let snowflake_region;
@@ -161,7 +162,7 @@ async function initializeSnowflake(tableNames) {
 		areTablesReady = tableCheckResults.every(result => result);
 		if (!areTablesReady) throw new Error("Table verification or creation failed.");
 		transport = "insert";
-		log("using INSERT + binds transport method.");
+		log("using INSERT + BIND transport method.");
 	}
 
 	const result = [isConnectionReady, isDatasetReady, areTablesReady];
@@ -194,6 +195,7 @@ async function initializeSnowflake(tableNames) {
 		}
 	}
 
+	// transport = "copy"
 	return result;
 }
 
@@ -202,8 +204,11 @@ async function initializeSnowflake(tableNames) {
 async function createSnowpipeConnection() {
 	try {
 		log("Creating Snowpipe connection...");
-
-		snowpipeAPI = await createSnowpipeAPI(snowflake_user, snowflake_private_key, snowflake_account, snowflake_region, snowflake_provider);
+		const args = [snowflake_user, snowflake_private_key, snowflake_account];
+		if (snowflake_region) args.push(snowflake_region);
+		if (snowflake_provider) args.push(snowflake_provider);
+		// @ts-ignore
+		snowpipeAPI = await createSnowpipeAPI(...args);
 		log("Snowpipe connection created.");
 		return true;
 	}
@@ -372,14 +377,15 @@ async function verifyOrCreatePipe(tableNames) {
 				.join(', ');
 
 			const createPipeQuery = `
-                CREATE OR REPLACE PIPE ${snowflake_pipe}_${table} AS
-                COPY INTO ${table}
-                FROM (
-                    SELECT ${columnMappings}
-                    FROM @${snowflake_stage}
-                )
-                FILE_FORMAT = (TYPE = 'JSON');
-            `;
+				CREATE OR REPLACE PIPE ${snowflake_pipe}_${table} AS
+				COPY INTO ${table}
+				FROM (
+					SELECT ${columnMappings}
+					FROM @${snowflake_stage}
+				)
+				FILE_FORMAT = (TYPE = 'JSON')
+				ON_ERROR = 'CONTINUE';
+			`;
 			const createPipeResult = await executeSQL(createPipeQuery);
 			log(`Pipe ${snowflake_pipe}_${table} created.`);
 		} else {
@@ -398,7 +404,7 @@ async function verifyOrCreatePipe(tableNames) {
  * @return {Promise<InsertResult>}
  */
 async function insertData(batch, table, schema) {
-	log("Starting data insertion...\n");
+	log("Append rows via INSERT...\n");
 	let result = { status: "born", dest: "snowflake" };
 	// Insert data
 	const [insertSQL, hasVariant] = prepareInsertSQL(schema, table);
@@ -440,7 +446,7 @@ async function insertData(batch, table, schema) {
  * @return {Promise<InsertResult>}
  */
 async function copyIntoData(batch, table, schema) {
-	log("Starting data insertion using Snowpipe...\n");
+	log("Appending data using COPY INTO...\n");
 	let result = { status: "born", dest: "snowflake" };
 
 	const FILE_PATH = path.resolve(TEMP_DIR, `${TODAY}-${uid(42)}.json`);
@@ -476,7 +482,7 @@ async function copyIntoData(batch, table, schema) {
 		SELECT ${columnMappings}
 		FROM ${stageName}/${fileName}
 	  )
-	  FILE_FORMAT = (TYPE = 'JSON')
+	  FILE_FORMAT = (TYPE = 'JSON');
 	`;
 	try {
 		const copyIntoResult = await executeSQL(copyCommand);
@@ -510,36 +516,59 @@ async function copyIntoData(batch, table, schema) {
  * @param  {Schema} schema
  */
 async function insertWithPipe(batch, table, schema) {
-	log("Starting data insertion using Snowpipe...\n");
+	log("Appending data using Snowpipe...\n");
 	let result = { status: "born", dest: "snowflake" };
 
 	const FILE_PATH = path.resolve(TEMP_DIR, `${TODAY}-${uid(42)}.json`);
+	const fileName = path.basename(FILE_PATH);
 
 	// Prepare data to be uploaded to the stage
 	const dataToUpload = batch.map(record => JSON.stringify(record)).join('\n');
 
 	// Write data to a temporary file
-	await writeFile(FILE_PATH, dataToUpload);
+	const localFileResult = await writeFile(FILE_PATH, dataToUpload);
 
-	// Use the Snowpipe API to upload the file to the Snowflake stage
+	// Use the PUT command to upload the file to the Snowflake stage
+	const stageName = `@${snowflake_stage}`;
+	const putCommand = `PUT file://${FILE_PATH} ${stageName}`;
+	try {
+		const putResult = await executeSQL(putCommand);
+		log(`File ${FILE_PATH} uploaded to stage ${stageName}`);
+	} catch (error) {
+		log(`Error uploading file to stage: ${error.message}`, error);
+		throw error;
+	}
+
+	// Notify Snowpipe about the new file in the stage
 	const pipeName = `${snowflake_database}.${snowflake_schema}.${snowflake_pipe}_${table}`;
 	try {
-		const response = await snowpipeAPI.insertFile(pipeName, [FILE_PATH]);
-		log(`File ${FILE_PATH} uploaded to Snowpipe ${pipeName}`);
+		const response = await snowpipeAPI.insertFile(pipeName, [fileName]);
+		log(`File ${fileName} inserted to Snowpipe ${pipeName}`);
 		result.status = 'success';
 		result.insertedRows = batch.length;
 		result.failedRows = 0;
+
+		const report = await snowpipeAPI.insertReport(pipeName);
+		const history = await snowpipeAPI.loadHistoryScan(pipeName, dayjs().subtract(1, 'day').toISOString(), dayjs().add(1, 'day').toISOString());
+		debugger; //! JEFF PLEASE HELP...I CANT GET THE DAMN FILES IN THE COMPUTER
+
+		// Remove the file from the stage after processing
+		const removeCommand = `REMOVE ${stageName}/${fileName}`;
+		const removeFileResult = await executeSQL(removeCommand);
+		log(`File ${fileName} removed from stage ${stageName}`);
 	} catch (error) {
-		log(`Error uploading file to Snowpipe: ${error.message}`, error);
+		log(`Error notifying Snowpipe: ${error.message}`, error);
 		throw error;
 	} finally {
-		// Remove the temporary file
-		const removeFileResult = await unlink(FILE_PATH);
+		// Remove the temporary local file
+		const removeLocalFile = await unlink(FILE_PATH);
 	}
 
 	log("Data insertion using Snowpipe complete.\n");
 	return result;
 }
+
+
 
 /**
  * @param  {WarehouseData} batch

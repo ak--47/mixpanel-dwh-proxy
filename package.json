@@ -15,7 +15,8 @@
 		"run:lambda": "sam local start-api --port 3000 --template ./lambda.yml",
 		"deploy:aws": "./scripts/aws-deploy.sh",
 		"deploy:azure": "./scripts/aure-deploy.sh",
-		"prune": "rm -rf tmp/*"
+		"prune": "rm -rf tmp/*",
+		"drop": "curl localhost:8080/drop"
 	},
 	"keywords": [
 		"mixpanel",

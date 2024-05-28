@@ -3,6 +3,8 @@ const timeout = 100000;
 
 // This function is called once before running the tests to start the test server.
 module.exports = async () => {
+	process.env.NODE_ENV = 'test';
+	process.env.WAREHOUSES = 'mixpanel, snowflake, bigquery, redshift';
 	console.log('starting test server + frontend...\n\n');
 	global.__SERVER__ = spawn('npm', ['run', 'dev']);
 	global.__FRONTEND__ = spawn('npm', ['run', 'frontend']);
@@ -39,7 +41,7 @@ module.exports = async () => {
 	});
 
 	const started = await Promise.all([mainServerStarted, frontEndStarted]);
-	await sleep(2000);
+	await sleep(5000);
 	console.log('starting tests...\n\n');
 
 

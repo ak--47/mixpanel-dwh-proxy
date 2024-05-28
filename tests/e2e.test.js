@@ -4,7 +4,7 @@ const u = require('ak-tools');
 const { version } = require('../package.json');
 const { spawn } = require('child_process');
 
-const timeout = 30000;
+const timeout = 60000;
 
 describe('DATA', () => {
 	test('POST /track (form)', async () => {
@@ -16,7 +16,35 @@ describe('DATA', () => {
 			body: `data=%7B%22event%22%3A%20%22look%20no%20token!%22%2C%22properties%22%3A%20%7B%22%24os%22%3A%20%22Mac%20OS%20X%22%2C%22%24browser%22%3A%20%22Chrome%22%2C%22%24current_url%22%3A%20%22http%3A%2F%2Flocalhost%3A3000%2F%22%2C%22%24browser_version%22%3A%20122%2C%22%24screen_height%22%3A%201080%2C%22%24screen_width%22%3A%201920%2C%22mp_lib%22%3A%20%22web%22%2C%22%24lib_version%22%3A%20%222.49.0%22%2C%22%24insert_id%22%3A%20%2233x91hx63q5ntr6q%22%2C%22time%22%3A%20${Date.now()}%2C%22distinct_id%22%3A%20%22%24device%3A18dfa623f8414f-0ac97dcee76b58-1d525637-1fa400-18dfa623f8514f%22%2C%22%24device_id%22%3A%20%2218dfa623f8414f-0ac97dcee76b58-1d525637-1fa400-18dfa623f8514f%22%2C%22%24initial_referrer%22%3A%20%22%24direct%22%2C%22%24initial_referring_domain%22%3A%20%22%24direct%22%2C%22token%22%3A%20%22%22%7D%7D`,
 		});
 		const data = await response.json();
-		expect(data).toEqual({ error: null, status: 1 });
+		expect(data.length).toBe(4);
+
+		let insertedRows, failedRows;
+		const mixpanel = data.find(d => d.name === 'mixpanel');
+		expect(mixpanel).toBeDefined();
+		expect(mixpanel.result.status).toBe(0);
+		expect(mixpanel.result.error).toBe('token, missing or empty');
+
+		const bigquery = data.find(d => d.name === 'bigquery');
+		expect(bigquery).toBeDefined();
+		expect(bigquery.result.status).toBe('success');
+		({ insertedRows, failedRows } = bigquery.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
+
+		const snowflake = data.find(d => d.name === 'snowflake');
+		expect(snowflake).toBeDefined();
+		expect(snowflake.result.status).toBe('success');
+		({ insertedRows, failedRows } = snowflake.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
+
+		const redshift = data.find(d => d.name === 'redshift');
+		expect(redshift).toBeDefined();
+		expect(redshift.result.status).toBe('success');
+		({ insertedRows, failedRows } = redshift.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
+
 	}, timeout);
 
 	test('POST /track (json)', async () => {
@@ -30,7 +58,35 @@ describe('DATA', () => {
 			body: `data=${Buffer.from(JSON.stringify(payload)).toString('base64')}`,
 		});
 		const data = await response.json();
-		expect(data).toEqual({ error: null, status: 1 });
+
+		expect(data.length).toBe(4);
+
+		let insertedRows, failedRows;
+		const mixpanel = data.find(d => d.name === 'mixpanel');
+		expect(mixpanel).toBeDefined();
+		expect(mixpanel.result.status).toBe(0);
+		expect(mixpanel.result.error).toBe('token, missing or empty');
+
+		const bigquery = data.find(d => d.name === 'bigquery');
+		expect(bigquery).toBeDefined();
+		expect(bigquery.result.status).toBe('success');
+		({ insertedRows, failedRows } = bigquery.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
+
+		const snowflake = data.find(d => d.name === 'snowflake');
+		expect(snowflake).toBeDefined();
+		expect(snowflake.result.status).toBe('success');
+		({ insertedRows, failedRows } = snowflake.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
+
+		const redshift = data.find(d => d.name === 'redshift');
+		expect(redshift).toBeDefined();
+		expect(redshift.result.status).toBe('success');
+		({ insertedRows, failedRows } = redshift.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
 	}, timeout);
 
 	//THIS DOESN'T WORK
@@ -65,7 +121,35 @@ describe('DATA', () => {
 			body: `data=${encodedPayload}`,
 		});
 		const data = await response.json();
-		expect(data).toEqual({ error: null, status: 1 });
+
+		expect(data.length).toBe(4);
+
+		let insertedRows, failedRows;
+		const mixpanel = data.find(d => d.name === 'mixpanel');
+		expect(mixpanel).toBeDefined();
+		expect(mixpanel.result.status).toBe(0);
+		expect(mixpanel.result.error).toBe('token, missing or empty');
+
+		const bigquery = data.find(d => d.name === 'bigquery');
+		expect(bigquery).toBeDefined();
+		expect(bigquery.result.status).toBe('success');
+		({ insertedRows, failedRows } = bigquery.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
+
+		const snowflake = data.find(d => d.name === 'snowflake');
+		expect(snowflake).toBeDefined();
+		expect(snowflake.result.status).toBe('success');
+		({ insertedRows, failedRows } = snowflake.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
+
+		const redshift = data.find(d => d.name === 'redshift');
+		expect(redshift).toBeDefined();
+		expect(redshift.result.status).toBe('success');
+		({ insertedRows, failedRows } = redshift.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
 	}, timeout);
 
 	test('POST /engage', async () => {
@@ -77,8 +161,91 @@ describe('DATA', () => {
 			body: `data=%7B%22%24set%22%3A%20%7B%22%24os%22%3A%20%22Mac%20OS%20X%22%2C%22%24browser%22%3A%20%22Chrome%22%2C%22%24browser_version%22%3A%20122%2C%22foo%22%3A%20%22bar%22%7D%2C%22%24token%22%3A%20%22%22%2C%22%24distinct_id%22%3A%20%22ak%22%2C%22%24device_id%22%3A%20%2218dfa623f8414f-0ac97dcee76b58-1d525637-1fa400-18dfa623f8514f%22%2C%22%24user_id%22%3A%20%22ak%22%7D`,
 		});
 		const data = await response.json();
-		expect(data).toEqual({ error: null, status: 1 });
+
+		expect(data.length).toBe(4);
+
+		let insertedRows, failedRows;
+		const mixpanel = data.find(d => d.name === 'mixpanel');
+		expect(mixpanel).toBeDefined();
+		expect(mixpanel.result.status).toBe(0);
+		expect(mixpanel.result.error).toBe('$token, missing or empty');
+
+		const bigquery = data.find(d => d.name === 'bigquery');
+		expect(bigquery).toBeDefined();
+		expect(bigquery.result.status).toBe('success');
+		({ insertedRows, failedRows } = bigquery.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
+
+		const snowflake = data.find(d => d.name === 'snowflake');
+		expect(snowflake).toBeDefined();
+		expect(snowflake.result.status).toBe('success');
+		({ insertedRows, failedRows } = snowflake.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
+
+		const redshift = data.find(d => d.name === 'redshift');
+		expect(redshift).toBeDefined();
+		expect(redshift.result.status).toBe('success');
+		({ insertedRows, failedRows } = redshift.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
 	}, timeout);
+
+	test("POST /groups", async () => {
+		const payload = [{
+			"$token": `${process.env.MIXPANEL_TOKEN || "foo"}`,
+			"$group_key": "company_id",
+			"$group_id": "12345",
+			"$set": {
+				"$name": "Acme",
+				"$email": "hello@acme.com",
+				"$phone": "555-555-5555",
+				"address": "123 Main St.",
+			}
+		}];
+
+		const response = await fetch('http://localhost:8080/groups', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'text/plain;charset=UTF-8'
+
+			},
+			body: JSON.stringify(payload),
+		});
+
+		const data = await response.json();
+		expect(data.length).toBe(4);
+
+		let insertedRows, failedRows;
+		const mixpanel = data.find(d => d.name === 'mixpanel');
+		expect(mixpanel).toBeDefined();
+		expect(mixpanel.result.status).toBe(1);
+		expect(mixpanel.result.error).toBe(null);
+
+		const bigquery = data.find(d => d.name === 'bigquery');
+		expect(bigquery).toBeDefined();
+		expect(bigquery.result.status).toBe('success');
+		({ insertedRows, failedRows } = bigquery.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
+
+		const snowflake = data.find(d => d.name === 'snowflake');
+		expect(snowflake).toBeDefined();
+		expect(snowflake.result.status).toBe('success');
+		({ insertedRows, failedRows } = snowflake.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
+
+		const redshift = data.find(d => d.name === 'redshift');
+		expect(redshift).toBeDefined();
+		expect(redshift.result.status).toBe('success');
+		({ insertedRows, failedRows } = redshift.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);
+
+	});
+
 });
 
 describe('HEARTBEAT', () => {
@@ -216,6 +383,7 @@ describe('PROXY', () => {
 
 });
 
+// todo: browser tests
 // describe('BROWSER', () => {
 // 	const puppeteer = require("puppeteer");
 // 	const DEV_URL = "http://localhost:3000";
@@ -229,11 +397,6 @@ describe('PROXY', () => {
 // 			args: [],
 // 		});
 
-// 		// New page to get extension ID
-// 		// const page = await browser.newPage();
-// 		// await page.goto(DEV_URL);
-// 		// await page.waitForSelector("body");
-// 		// await page.close();
 // 	});
 
 // 	afterAll(async () => {
@@ -364,7 +527,9 @@ describe('PROXY', () => {
 
 
 //after all, call drop + prune
-
-function sleep(ms) {
-	return new Promise(resolve => setTimeout(resolve, ms));
-}
+afterAll(async () => {
+	const drop = spawn('npm', ['run', 'drop'], { stdio: 'inherit' });
+	await new Promise(resolve => drop.on('close', resolve));
+	const prune = spawn('npm', ['run', 'prune'], { stdio: 'inherit' });
+	await new Promise(resolve => prune.on('close', resolve));
+});
