@@ -5,6 +5,8 @@
 // TYPES
 /** @typedef {import('./types').Runtimes} Runtimes */
 /** @typedef {import('./types').Destinations} Destinations */
+/** @typedef {import('./types').Warehouse} Warehouse */
+/** @typedef {import('./types').Lake} Lake */
 /** @typedef {import('./types').Endpoints} Endpoints */
 /** @typedef {import('./types').IncomingData} IncomingData */
 /** @typedef {import('./types').FlatData} WarehouseData */
@@ -31,7 +33,8 @@ const bigquery = require('./middleware/bigquery');
 const snowflake = require('./middleware/snowflake');
 const redshift = require('./middleware/redshift');
 const mixpanel = require('./middleware/mixpanel');
-const middleware = { bigquery, snowflake, redshift, mixpanel };
+const gcs = require('./middleware/gcs');
+const middleware = { bigquery, snowflake, redshift, mixpanel, gcs };
 
 // HELPERS
 const { clone } = require('ak-tools');
@@ -50,16 +53,25 @@ const PORT = process.env.PORT || 8080;
 let FRONTEND_URL = process.env.FRONTEND_URL || "";
 if (FRONTEND_URL === "none") FRONTEND_URL = "";
 
-// WAREHOUSES + DESTINATIONS
+// DESTINATIONS
+
 const WAREHOUSES = process.env.WAREHOUSES || "MIXPANEL";
+const warehouseList = WAREHOUSES.split(',').map(wh => wh.trim()).filter(a => a);
+const LAKE = process.env.LAKE || "";
+const lakeList = LAKE.split(',').map(wh => wh.trim()).filter(a => a);
 /** @type {Destinations[]} */
-const DESTINATIONS = WAREHOUSES.split(',').map(wh => wh.trim()).filter(a => a).map(t => t.toLowerCase());
+const DESTINATIONS = [...warehouseList, ...lakeList].flat().filter(a => a).map(t => t.toLowerCase());
 /** @type {Runtimes} */
 let RUNTIME = process.env.RUNTIME?.toUpperCase() || 'LOCAL';
+
 const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'events';
 const USERS_TABLE_NAME = process.env.USERS_TABLE_NAME || 'users';
 const GROUPS_TABLE_NAME = process.env.GROUPS_TABLE_NAME || 'groups';
+const EVENTS_PATH = process.env.EVENTS_PATH || 'events';
+const USERS_PATH = process.env.USERS_PATH || 'users';
+const GROUPS_PATH = process.env.GROUPS_PATH || 'groups';
 
+const MIXPANEL_TOKEN = process.env.MIXPANEL_TOKEN || "";
 const tableNames = { eventTable: EVENTS_TABLE_NAME, userTable: USERS_TABLE_NAME, groupTable: GROUPS_TABLE_NAME };
 
 // MIDDLEWARE
@@ -139,6 +151,13 @@ async function handleMixpanelIncomingReq(type, req, res) {
 			if (type === 'track') record.properties.ip = endUserIp;
 			if (type === 'engage') record.$ip = endUserIp;
 			if (type === 'groups') record.$ip = endUserIp;
+		}
+
+		// include token
+		if (MIXPANEL_TOKEN) {
+			if (type === 'track') record.properties.token = MIXPANEL_TOKEN;
+			if (type === 'engage') record.$token = MIXPANEL_TOKEN;
+			if (type === 'groups') record.$token = MIXPANEL_TOKEN;
 		}
 	});
 

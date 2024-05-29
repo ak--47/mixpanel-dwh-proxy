@@ -9,7 +9,10 @@ export type Runtimes =
   | "AZURE"
   | "LOCAL"
   | string;
-export type Destinations = "REDSHIFT" | "BIGQUERY" | "SNOWFLAKE" | "MIXPANEL" | string;
+
+export type Warehouse = "REDSHIFT" | "BIGQUERY" | "SNOWFLAKE";
+export type Lake = "S3" | "GCS" | "AZURE_BLOB";
+export type Destinations = Warehouse | Lake | string;
 
 export type Endpoints = "track" | "engage" | "groups";
 export type Entities = "event" | "user" | "group";

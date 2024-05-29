@@ -449,7 +449,7 @@ async function copyIntoData(batch, table, schema) {
 	log("Appending data using COPY INTO...\n");
 	let result = { status: "born", dest: "snowflake" };
 
-	const FILE_PATH = path.resolve(TEMP_DIR, `${TODAY}-${uid(42)}.json`);
+	const FILE_PATH = path.resolve(TEMP_DIR, `${TODAY}_${uid(42)}.json`);
 	const fileName = path.basename(FILE_PATH);
 
 	// Prepare data to be uploaded to the stage
@@ -519,7 +519,7 @@ async function insertWithPipe(batch, table, schema) {
 	log("Appending data using Snowpipe...\n");
 	let result = { status: "born", dest: "snowflake" };
 
-	const FILE_PATH = path.resolve(TEMP_DIR, `${TODAY}-${uid(42)}.json`);
+	const FILE_PATH = path.resolve(TEMP_DIR, `${TODAY}_${uid(42)}.json`);
 	const fileName = path.basename(FILE_PATH);
 
 	// Prepare data to be uploaded to the stage
