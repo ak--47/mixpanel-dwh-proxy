@@ -34,7 +34,6 @@ let gcs_bucket;
 let gcs_service_account;
 let gcs_service_account_pass;
 let gcs_keyfile;
-let gcs_prefix;
 let isClientReady;
 let isBucketReady;
 let canWriteToBucket;

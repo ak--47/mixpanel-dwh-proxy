@@ -85,7 +85,7 @@ module.exports = function validate(PARAMS = { ...process.env }) {
 	// MIXPANEL
 	const { mixpanel_token = "" } = PARAMS;
 	// GCS
-	const { gcs_project = "", gcs_bucket = "", gcs_prefix = "" } = PARAMS;
+	const { gcs_project = "", gcs_bucket = "" } = PARAMS;
 
 	// bigquery
 	if (DESTINATIONS.includes('BIGQUERY')) {
