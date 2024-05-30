@@ -1,6 +1,8 @@
 // A row-level Mixpanel proxy server which receives data from Mixpanel's JS Lib and sends it to DWHs.
 // by ak@mixpanel.com
 
+//todos: azure blob + azure functions
+// better logging labels depending on which middleware is running
 
 // TYPES
 /** @typedef {import('./types').Runtimes} Runtimes */
@@ -119,10 +121,9 @@ const activeMiddleware = DESTINATIONS
 
 for (const { name, api: middleware } of activeMiddleware) {
 	if (middleware.init) {
-		middleware.init(TABLE_NAMES);
+		middleware.init(TABLE_NAMES); //these methods are async, but we don't want to wait for them.
 		log(`initializing ${name}`);
 	}
-
 }
 
 /**

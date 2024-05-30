@@ -15,6 +15,10 @@ const { tmpdir } = require('os');
 const TEMP_DIR = NODE_ENV === 'prod' ? path.resolve(tmpdir()) : path.resolve('./tmp');
 const dayjs = require('dayjs');
 const TODAY = dayjs().format('YYYY-MM-DD');
+if (NODE_ENV === 'test') {
+	log.verbose(true);
+	log.cli(true);
+}
 
 // CORE MIDDLEWARE CONTRACT
 /** @typedef {import('../types').Entities} Entities */
@@ -287,7 +291,7 @@ async function insertData(batch, prefix) {
 	}
 
 	log("\n\tData insertion complete.\n");
-	return { ...result, dest: "gcs" };
+	return { ...result };
 }
 
 
@@ -307,8 +311,9 @@ async function deleteAllFiles(tableNames) {
 	const [files] = await bucket.getFiles();
 	const filesToDelete = files.filter((f) => tables.some((t) => f.name.includes(t)));
 	const deletePromises = filesToDelete.map((f) => f.delete());
-	const [deleteResults] = await Promise.all(deletePromises);
-	log(`Deleted ${deleteResults.length} files from bucket ${gcs_bucket}.`);
+	const deleteResults = await Promise.all(deletePromises);
+	log(`Deleted ${deleteResults?.length} files from bucket ${gcs_bucket}.`);
+	return { numFilesDeleted: deleteResults?.length };
 }
 
 main.drop = deleteAllFiles;

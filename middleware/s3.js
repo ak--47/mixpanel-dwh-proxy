@@ -4,16 +4,21 @@ AMAZON S3 MIDDLEWARE
 ----
 */
 
-const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectsCommand, CreateBucketCommand, HeadBucketCommand } = require('@aws-sdk/client-s3');
 const path = require('path');
 const { uid, touch, rm, load } = require('ak-tools');
 const { tmpdir } = require('os');
 const log = require("../components/logger.js");
 const dayjs = require('dayjs');
 const TODAY = dayjs().format('YYYY-MM-DD');
+const zlib = require('zlib');
 
 const NODE_ENV = process.env.NODE_ENV || "prod";
 const TEMP_DIR = NODE_ENV === 'prod' ? path.resolve(tmpdir()) : path.resolve('./tmp');
+if (NODE_ENV === 'test') {
+	log.verbose(true);
+	log.cli(true);
+}
 
 // CORE MIDDLEWARE CONTRACT
 /** @typedef {import('../types').Entities} Entities */
@@ -25,12 +30,14 @@ const TEMP_DIR = NODE_ENV === 'prod' ? path.resolve(tmpdir()) : path.resolve('./
 /** @typedef {import('../types').FlatData} FlatData */
 
 // These vars should be cached and only run once when the server starts
-let s3;
+/** @type {S3Client} */
+let s3client;
 let s3_bucket;
 let s3_region;
 let s3_access_key_id;
 let s3_secret_access_key;
 let isClientReady;
+let isBucketReady;
 let canWriteToBucket;
 
 /**
@@ -83,6 +90,12 @@ async function initializeS3(tableNames) {
 		if (!isClientReady) throw new Error("S3 credentials verification failed.");
 	}
 
+	if (!isBucketReady) {
+		isBucketReady = await verifyOrCreateBucket();
+		if (!isBucketReady) throw new Error("S3 bucket does not exist.");
+	}
+
+
 	if (!canWriteToBucket) {
 		canWriteToBucket = await verifyReadAndWritePermissions();
 		if (!canWriteToBucket) throw new Error("Could not verify read/write bucket permissions.");
@@ -92,7 +105,8 @@ async function initializeS3(tableNames) {
 }
 
 async function verifyS3Credentials() {
-	s3 = new S3Client({
+	log("Verifying S3 credentials...");
+	s3client = new S3Client({
 		region: s3_region,
 		credentials: {
 			accessKeyId: s3_access_key_id,
@@ -101,12 +115,42 @@ async function verifyS3Credentials() {
 	});
 
 	try {
-		await s3.send(new ListObjectsV2Command({ Bucket: s3_bucket }));
+		const listObjectResult = await s3client.send(new ListObjectsV2Command({ Bucket: s3_bucket }));
 		log("S3 credentials verified.");
 		return true;
 	} catch (error) {
 		log("Error verifying S3 credentials:", error);
 		return error.message;
+	}
+}
+
+
+async function verifyOrCreateBucket() {
+	log("Verifying or creating S3 bucket...");
+
+	// Check if the bucket exists
+	try {
+		const checkForBucket = await s3client.send(new HeadBucketCommand({ Bucket: s3_bucket }));
+		log(`Bucket ${s3_bucket} already exists.`);
+		return true;
+	} catch (error) {
+		if (error.name === 'NotFound') {
+			log(`Bucket ${s3_bucket} does not exist. Creating...`);
+		} else {
+			log(`Error checking bucket existence: ${error.message}`);
+			return false;
+		}
+	}
+
+	// Create the bucket if it does not exist
+	try {
+		const createBucketCommand = new CreateBucketCommand({ Bucket: s3_bucket });
+		const bucketCreateCommand = await s3client.send(createBucketCommand);
+		log(`Bucket ${s3_bucket} created.`);
+		return true;
+	} catch (error) {
+		log(`Failed to create bucket ${s3_bucket}: ${error.message}`);
+		return false;
 	}
 }
 
@@ -131,7 +175,7 @@ async function verifyReadAndWritePermissions() {
 	try {
 		// Upload to S3
 		log("Uploading dummy file to bucket...");
-		await s3.send(new PutObjectCommand({
+		const dummyUpload = await s3client.send(new PutObjectCommand({
 			Bucket: s3_bucket,
 			Key: dummyFileName,
 			Body: await load(FILE_PATH)
@@ -140,12 +184,12 @@ async function verifyReadAndWritePermissions() {
 
 		// Download from S3
 		log("Downloading dummy file from bucket...");
-		const data = await s3.send(new GetObjectCommand({
+		const data = await s3client.send(new GetObjectCommand({
 			Bucket: s3_bucket,
 			Key: dummyFileName
 		}));
 		const bodyContents = await streamToString(data.Body);
-		await touch(FILE_PATH_DOWNLOAD, bodyContents);
+		const createDownloadResult = await touch(FILE_PATH_DOWNLOAD, bodyContents);
 		log("Download successful.");
 
 		// Verify contents
@@ -160,7 +204,7 @@ async function verifyReadAndWritePermissions() {
 
 		// Delete from S3
 		log("Deleting dummy file from bucket...");
-		await s3.send(new DeleteObjectsCommand({
+		const deleteResult = await s3client.send(new DeleteObjectsCommand({
 			Bucket: s3_bucket,
 			Delete: {
 				Objects: [{ Key: dummyFileName }]
@@ -170,8 +214,8 @@ async function verifyReadAndWritePermissions() {
 
 		// Delete local files
 		log("Deleting local files...");
-		await rm(FILE_PATH);
-		await rm(FILE_PATH_DOWNLOAD);
+		const localDeleteResult = await rm(FILE_PATH);
+		const localDownloadDeleteResult = await rm(FILE_PATH_DOWNLOAD);
 		log("Local files deleted.");
 
 	} catch (error) {
@@ -193,18 +237,20 @@ async function insertData(batch, prefix) {
 	log("Starting data upload...\n");
 	if (!prefix) throw new Error("Prefix name not provided.");
 	if (prefix?.endsWith("/")) prefix = prefix.slice(0, -1);
-	let result = { status: "born", dest: "s3" };
+	let result = { status: "born" };
 	const fileName = `${prefix}/${TODAY}_${uid(42)}.json.gz`;
-	const dataToUpload = batch.map(record => JSON.stringify(record)).join('\n');
-
+	const dataToUpload = zlib.gzipSync(batch.map(record => JSON.stringify(record)).join('\n'));
+	
 	try {
-		await s3.send(new PutObjectCommand({
+
+		const insertResult = await s3client.send(new PutObjectCommand({
 			Bucket: s3_bucket,
 			Key: fileName,
 			Body: dataToUpload,
-			ContentEncoding: 'gzip'
+			ContentEncoding: 'gzip',
+			
 		}));
-		result = { status: "success", insertedRows: batch.length, failedRows: 0, dest: "s3" };
+		result = { status: "success", insertedRows: batch.length, failedRows: 0 };
 	} catch (error) {
 		log(`Error uploading data to S3: ${error.message}`, error);
 		throw error;
@@ -225,17 +271,17 @@ async function deleteAllFiles(tableNames) {
 		const listParams = {
 			Bucket: s3_bucket,
 		};
-		const listObjectsResponse = await s3.send(new ListObjectsV2Command(listParams));
-		const filesToDelete = listObjectsResponse.Contents.filter(f => tables.some(t => f.Key.includes(t)));
+		const listObjectsResponse = await s3client.send(new ListObjectsV2Command(listParams));
+		const filesToDelete = listObjectsResponse?.Contents?.filter(f => tables.some(t => f?.Key?.includes(t)));
 
 		const deleteParams = {
 			Bucket: s3_bucket,
 			Delete: {
-				Objects: filesToDelete.map(f => ({ Key: f.Key }))
+				Objects: filesToDelete?.map(f => ({ Key: f.Key }))
 			}
 		};
-		await s3.send(new DeleteObjectsCommand(deleteParams));
-		log(`Deleted ${filesToDelete.length} files from bucket ${s3_bucket}.`);
+		await s3client.send(new DeleteObjectsCommand(deleteParams));
+		log(`Deleted ${filesToDelete?.length || 0} files from bucket ${s3_bucket}.`);
 	} catch (error) {
 		log(`Error deleting files from S3: ${error.message}`, error);
 		throw error;

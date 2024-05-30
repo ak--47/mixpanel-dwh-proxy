@@ -6,6 +6,10 @@ const NODE_ENV = process.env.NODE_ENV || 'prod';
 const REGION = process.env.REGION || 'US';
 const BASE_URL = `https://api${REGION?.toUpperCase() === "EU" ? '-eu' : ''}.mixpanel.com`;
 if (!BASE_URL) throw new Error('BASE_URL is required; mixpanel middleware is not ready');
+if (NODE_ENV === 'test') {
+	log.verbose(true);
+	log.cli(true);
+}
 
 /** @typedef {import('../types').Endpoints} Endpoints */
 /** @typedef {import('../types').InsertResult} InsertResult */
@@ -19,7 +23,7 @@ if (!BASE_URL) throw new Error('BASE_URL is required; mixpanel middleware is not
  * sends a POST request to the given URL with the given data
  * @param  {DATA} data
  * @param  {Endpoints} type
- * @returns {InsertResult}
+ * @returns {Promise<InsertResult>}
  */
 async function main(data, type,) {
 	const start = Date.now();

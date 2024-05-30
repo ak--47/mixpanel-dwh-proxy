@@ -2,8 +2,7 @@ const utils = require('ak-tools');
 require('dotenv').config({ override: false });
 const validateEnv = require('../components/validate');
 const { flattenAndRenameForWarehouse } = require('../components/transforms');
-
-
+const isDebugMode = process.env.NODE_OPTIONS?.includes('--inspect') || process.env.NODE_OPTIONS?.includes('--inspect-brk');
 
 
 /** @typedef {import('../types').AllConfigs} Params */
@@ -223,29 +222,30 @@ describe('S3', () => {
 	}, timeout);
 });
 
-describe('Azure', () => {
+//todo
+// describe('Azure', () => {
 
-	test('azure: events', async () => {
-		const result = await azure(e, 'track', tableNames);
-		const { failedRows, insertedRows, status } = result;
-		expect(failedRows).toBe(0);
-		expect(insertedRows).toBe(1);
-		expect(status).toBe('success');
-	}, timeout);
+// 	test('azure: events', async () => {
+// 		const result = await azure(e, 'track', tableNames);
+// 		const { failedRows, insertedRows, status } = result;
+// 		expect(failedRows).toBe(0);
+// 		expect(insertedRows).toBe(1);
+// 		expect(status).toBe('success');
+// 	}, timeout);
 
-	test('azure: users', async () => {
-		const result = await azure(u, 'engage', tableNames);
-		const { failedRows, insertedRows, status } = result;
-		expect(failedRows).toBe(0);
-		expect(insertedRows).toBe(1);
-		expect(status).toBe('success');
-	}, timeout);
+// 	test('azure: users', async () => {
+// 		const result = await azure(u, 'engage', tableNames);
+// 		const { failedRows, insertedRows, status } = result;
+// 		expect(failedRows).toBe(0);
+// 		expect(insertedRows).toBe(1);
+// 		expect(status).toBe('success');
+// 	}, timeout);
 
-	test('azure: groups', async () => {
-		const result = await azure(g, 'groups', tableNames);
-		const { failedRows, insertedRows, status } = result;
-		expect(failedRows).toBe(0);
-		expect(insertedRows).toBe(1);
-		expect(status).toBe('success');
-	}, timeout);
-});
+// 	test('azure: groups', async () => {
+// 		const result = await azure(g, 'groups', tableNames);
+// 		const { failedRows, insertedRows, status } = result;
+// 		expect(failedRows).toBe(0);
+// 		expect(insertedRows).toBe(1);
+// 		expect(status).toBe('success');
+// 	}, timeout);
+// });

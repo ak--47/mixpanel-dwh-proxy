@@ -16,8 +16,7 @@
 		"deploy:aws": "./scripts/aws-deploy.sh",
 		"deploy:azure": "./scripts/aure-deploy.sh",
 		"prune": "rm -rf tmp/*",
-		"drop": "curl localhost:8080/drop",
-		"dev:bigquery": "npm run prune && NODE_ENV=dev WAREHOUSE=bigquery LAKE='' nodemon --inspect --ignore tmp/ server.js"
+		"drop": "curl localhost:8080/drop"
 	},
 	"keywords": [
 		"mixpanel",
@@ -52,7 +51,9 @@
 		"snowflake-ingest-node": "^0.0.5",
 		"snowflake-sdk": "^1.10.1"
 	},
-	"jest": {},
+	"jest": {
+		"preset": "./tests/jest.config.js"
+	},
 	"devDependencies": {
 		"@types/jest": "^29.5.12",
 		"ak-tools": "^1.0.58",

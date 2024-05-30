@@ -14,6 +14,10 @@ const u = require("ak-tools");
 const { schematizeForWarehouse } = require('../components/transforms.js');
 const schemas = require("./bigquery-schemas.js");
 const log = require("../components/logger.js");
+if (NODE_ENV === 'test') {
+	log.verbose(true);
+	log.cli(true);
+}
 
 // CORE MIDDLEWARE CONTRACT
 /** @typedef {import('../types').Entities} Entities */

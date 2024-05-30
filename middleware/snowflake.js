@@ -24,6 +24,10 @@ if (typeof MAX_RETRIES === "string") MAX_RETRIES = parseInt(MAX_RETRIES);
 const u = require("ak-tools");
 const schemas = require("./snowflake-schemas.js");
 const log = require("../components/logger.js");
+if (NODE_ENV === 'test') {
+	log.verbose(true);
+	log.cli(true);
+}
 
 
 

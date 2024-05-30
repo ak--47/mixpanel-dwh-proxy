@@ -12,6 +12,10 @@ const schemas = require('./redshift-schemas.js');
 const NODE_ENV = process.env.NODE_ENV || "prod";
 let MAX_RETRIES = process.env.MAX_RETRIES || 5;
 if (typeof MAX_RETRIES === "string") MAX_RETRIES = parseInt(MAX_RETRIES);
+if (NODE_ENV === 'test') {
+	log.verbose(true);
+	log.cli(true);
+}
 
 // CORE MIDDLEWARE CONTRACT
 /** @typedef {import('../types').Entities} Entities */
