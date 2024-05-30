@@ -4,7 +4,7 @@ AZURE BLOB STORAGE MIDDLEWARE
 ----
 */
 
-const { BlobServiceClient, StorageSharedKeyCredential } = require('@azure/storage-blob');
+const { BlobServiceClient, ContainerClient } = require('@azure/storage-blob');
 const path = require('path');
 const { uid, touch, rm, load } = require('ak-tools');
 const { tmpdir } = require('os');
@@ -29,11 +29,12 @@ if (NODE_ENV === 'test') {
 /** @typedef {import('../types').FlatData} FlatData */
 
 // These vars should be cached and only run once when the server starts
+/** @type {BlobServiceClient} */
 let blobServiceClient;
 let containerClient;
-let azure_account;
+let azure_account_name;
 let azure_account_key;
-let azure_container;
+let azure_container_name;
 let isClientReady;
 let canWriteToContainer;
 
@@ -76,36 +77,64 @@ async function main(data, type, tableNames) {
 async function initializeAzureBlobStorage(tableNames) {
 	// ENV STUFF
 	({
-		azure_account,
+		azure_account_name,
 		azure_account_key,
-		azure_container,
+		azure_container_name,
 	} = process.env);
 
 	if (!isClientReady) {
-		isClientReady = await verifyAzureBlobCredentials();
+		isClientReady = await verifyAzureBlobStorageCredentials();
 		if (!isClientReady) throw new Error("Azure Blob Storage credentials verification failed.");
 	}
 
 	if (!canWriteToContainer) {
-		canWriteToContainer = await verifyReadAndWritePermissions();
+		canWriteToContainer = await verifyOrCreateContainer();
 		if (!canWriteToContainer) throw new Error("Could not verify read/write container permissions.");
 	}
 
 	return [isClientReady];
 }
 
-async function verifyAzureBlobCredentials() {
-	const sharedKeyCredential = new StorageSharedKeyCredential(azure_account, azure_account_key);
-	const blobServiceClient = new BlobServiceClient(`https://${azure_account}.blob.core.windows.net`, sharedKeyCredential);
+async function verifyAzureBlobStorageCredentials() {
+	log("Verifying Azure Blob Storage credentials...");
+	const credentials = new StorageSharedKeyCredential(azure_account_name, azure_account_key);
+	const pipeline = newPipeline(credentials);
+	blobServiceClient = new BlobServiceClient(`https://${azure_account_name}.blob.core.windows.net`, pipeline);
+	containerClient = blobServiceClient.getContainerClient(azure_container_name);
 
 	try {
-		containerClient = blobServiceClient.getContainerClient(azure_container);
-		await containerClient.getProperties();
+		await blobServiceClient.getAccountInfo();
 		log("Azure Blob Storage credentials verified.");
 		return true;
 	} catch (error) {
 		log("Error verifying Azure Blob Storage credentials:", error);
 		return error.message;
+	}
+}
+
+async function verifyOrCreateContainer() {
+	log("Verifying or creating Azure Blob Storage container...");
+
+	try {
+		await containerClient.getProperties();
+		log(`Container ${azure_container_name} already exists.`);
+		return true;
+	} catch (error) {
+		if (error.statusCode === 404) {
+			log(`Container ${azure_container_name} does not exist. Creating...`);
+		} else {
+			log(`Error checking container existence: ${error.message}`);
+			return false;
+		}
+	}
+
+	try {
+		await containerClient.create();
+		log(`Container ${azure_container_name} created.`);
+		return true;
+	} catch (error) {
+		log(`Failed to create container ${azure_container_name}: ${error.message}`);
+		return false;
 	}
 }
 
@@ -179,14 +208,14 @@ async function insertData(batch, prefix) {
 	log("Starting data upload...\n");
 	if (!prefix) throw new Error("Prefix name not provided.");
 	if (prefix?.endsWith("/")) prefix = prefix.slice(0, -1);
-	let result = { status: "born", dest: "azure_blob" };
+	let result = { status: "born" };
 	const fileName = `${prefix}/${TODAY}_${uid(42)}.json.gz`;
 	const dataToUpload = batch.map(record => JSON.stringify(record)).join('\n');
 
 	try {
 		const blockBlobClient = containerClient.getBlockBlobClient(fileName);
-		await blockBlobClient.upload(dataToUpload, dataToUpload.length, { blobHTTPHeaders: { blobContentEncoding: "gzip" } });
-		result = { status: "success", insertedRows: batch.length, failedRows: 0, dest: "azure_blob" };
+		await blockBlobClient.upload(dataToUpload, dataToUpload.length, { blobHTTPHeaders: { blobContentEncoding: 'gzip' } });
+		result = { status: "success", insertedRows: batch.length, failedRows: 0 };
 	} catch (error) {
 		log(`Error uploading data to Azure Blob Storage: ${error.message}`, error);
 		throw error;
@@ -197,20 +226,23 @@ async function insertData(batch, prefix) {
 }
 
 /**
- * Delete container and all files. This is a destructive operation.
+ * Delete container and all blobs. This is a destructive operation.
  * @param  {TableNames} tableNames
  */
 async function deleteAllFiles(tableNames) {
 	const { eventTable, userTable, groupTable } = tableNames;
 	const tables = [eventTable, userTable, groupTable];
 	try {
-		let blobs = containerClient.listBlobsFlat();
-		for await (const blob of blobs) {
+		const listBlobsResponse = await containerClient.listBlobsFlat();
+		const blobsToDelete = [];
+		for await (const blob of listBlobsResponse) {
 			if (tables.some(t => blob.name.includes(t))) {
-				await containerClient.deleteBlob(blob.name);
-				log(`Deleted blob ${blob.name} from container ${azure_container}.`);
+				blobsToDelete.push({ name: blob.name });
 			}
 		}
+		const deletePromises = blobsToDelete.map(blob => containerClient.getBlockBlobClient(blob.name).delete());
+		await Promise.all(deletePromises);
+		log(`Deleted ${blobsToDelete.length} blobs from container ${azure_container_name}.`);
 	} catch (error) {
 		log(`Error deleting blobs from Azure Blob Storage: ${error.message}`, error);
 		throw error;

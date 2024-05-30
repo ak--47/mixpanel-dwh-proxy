@@ -49,9 +49,8 @@ const middleware = { bigquery, snowflake, redshift, mixpanel, gcs, s3, azure };
 require('dotenv').config({ override: false });
 const PARAMS = validateEnv();
 const NODE_ENV = process.env.NODE_ENV || 'prod';
-if (NODE_ENV === 'dev') { log.verbose(true); log.cli(true); }
-if (NODE_ENV === 'test') { log.verbose(true); log.cli(true); }
-if (NODE_ENV === 'prod') { log.verbose(false); log.cli(false); }
+if (NODE_ENV === 'dev') { log.verbose(true); log.cli(true); } // log everything
+if (NODE_ENV === 'prod') { log.verbose(false); log.cli(false); } //only logs structured logs + error
 log(`running in ${NODE_ENV} mode; version: ${version}; verbose: ${log.isVerbose()} cli: ${log.isCli()}`);
 
 const WAREHOUSES = process.env.WAREHOUSES || "MIXPANEL";

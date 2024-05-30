@@ -5,6 +5,8 @@
 
 
 const u = require("ak-tools");
+const NODE_ENV = process.env.NODE_ENV || "prod";
+const isDebugMode = process.env.NODE_OPTIONS?.includes('--inspect') || process.env.NODE_OPTIONS?.includes('--inspect-brk');
 let logBuffer = [];
 let verbose = false;
 let cli_mode = false;

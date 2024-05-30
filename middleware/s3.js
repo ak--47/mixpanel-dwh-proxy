@@ -240,15 +240,15 @@ async function insertData(batch, prefix) {
 	let result = { status: "born" };
 	const fileName = `${prefix}/${TODAY}_${uid(42)}.json.gz`;
 	const dataToUpload = zlib.gzipSync(batch.map(record => JSON.stringify(record)).join('\n'));
-	
-	try {
+	// const dataToUpload = batch.map(record => JSON.stringify(record)).join('\n');
 
+	try {
 		const insertResult = await s3client.send(new PutObjectCommand({
 			Bucket: s3_bucket,
 			Key: fileName,
 			Body: dataToUpload,
-			ContentEncoding: 'gzip',
-			
+
+
 		}));
 		result = { status: "success", insertedRows: batch.length, failedRows: 0 };
 	} catch (error) {
