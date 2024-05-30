@@ -32,7 +32,7 @@ let client;
 let gcs_project;
 let gcs_bucket;
 let gcs_service_account;
-let gcs_service_account_pass;
+let gcs_service_account_private_key;
 let gcs_keyfile;
 let isClientReady;
 let isBucketReady;
@@ -86,9 +86,8 @@ async function initializeGoogleStorage(tableNames) {
 		gcs_project,
 		gcs_bucket,
 		gcs_service_account,
-		gcs_service_account_pass,
-		gcs_keyfile,
-		gcs_prefix,
+		gcs_service_account_private_key,
+		gcs_keyfile
 	} =
 		process.env);
 
@@ -122,10 +121,10 @@ async function verifyGcsCredentials() {
 		auth.keyFile = gcs_keyfile;
 	}
 	if (gcs_project) auth.projectId = gcs_project;
-	if (gcs_service_account && gcs_service_account_pass) {
+	if (gcs_service_account && gcs_service_account_private_key) {
 		auth.credentials = {
 			client_email: gcs_service_account,
-			private_key: gcs_service_account_pass,
+			private_key: gcs_service_account_private_key,
 		};
 	}
 

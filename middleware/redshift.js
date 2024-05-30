@@ -6,7 +6,7 @@ REDSHIFT MIDDLEWARE
 const { RedshiftDataClient, ExecuteStatementCommand, DescribeStatementCommand } = require('@aws-sdk/client-redshift-data');
 const log = require('../components/logger.js');
 const u = require('ak-tools');
-const { schematizeForWarehouse } = require('../components/parser.js');
+const { schematizeForWarehouse } = require('../components/transforms.js');
 const schemas = require('./redshift-schemas.js');
 
 const NODE_ENV = process.env.NODE_ENV || "prod";

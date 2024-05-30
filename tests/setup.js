@@ -5,6 +5,7 @@ const timeout = 100000;
 module.exports = async () => {
 	process.env.NODE_ENV = 'test';
 	process.env.WAREHOUSES = 'mixpanel, snowflake, bigquery, redshift';
+	process.env.LAKES = 'gcs, azure, s3';
 	console.log('starting test server + frontend...\n\n');
 	global.__SERVER__ = spawn('npm', ['run', 'dev']);
 	global.__FRONTEND__ = spawn('npm', ['run', 'frontend']);
@@ -41,8 +42,8 @@ module.exports = async () => {
 	});
 
 	const started = await Promise.all([mainServerStarted, frontEndStarted]);
-	await sleep(5000);
-	console.log('starting tests...\n\n');
+	await sleep(2000);
+	console.log('\n\nstarting tests...\n\n');
 
 
 

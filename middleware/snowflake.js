@@ -5,7 +5,7 @@ SNOWFLAKE MIDDLEWARE
 */
 const snowflake = require('snowflake-sdk');
 const { createSnowpipeAPI } = require('snowflake-ingest-node');
-const { schematizeForWarehouse } = require('../components/parser.js');
+const { schematizeForWarehouse } = require('../components/transforms.js');
 const path = require('path');
 const { writeFile, unlink } = require('fs/promises');
 const { uid } = require('ak-tools');

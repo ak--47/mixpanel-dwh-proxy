@@ -1,3 +1,7 @@
+/**
+ * @fileoverview validates incoming environment variables
+ */
+
 const defaultEventsTableName = 'events';
 const defaultUsersTableName = 'users';
 const defaultGroupsTableName = 'groups';
@@ -5,8 +9,7 @@ const defaultWarehouse = 'MIXPANEL';
 const defaultLake = '';
 const defaultDestinations = [defaultWarehouse];
 
-
-module.exports = function validate(PARAMS = { ...process.env }) {
+function validate(PARAMS = { ...process.env }) {
 
 	for (const key in PARAMS) {
 		if (PARAMS[key] === undefined) delete PARAMS[key];
@@ -25,13 +28,11 @@ module.exports = function validate(PARAMS = { ...process.env }) {
 		EVENTS_TABLE_NAME,
 		USERS_TABLE_NAME,
 		GROUPS_TABLE_NAME,
-		EVENTS_PATH,
-		USERS_PATH,
-		GROUPS_PATH } = PARAMS;
+	} = PARAMS;
 
 	const warehouseList = WAREHOUSES.split(',').map(wh => wh.trim()).filter(a => a);
 	const lakeList = LAKES.split(',').map(wh => wh.trim()).filter(a => a);
-	const DESTINATIONS = [...warehouseList, ...lakeList].flat().filter(a => a).map(t => t.toLowerCase());
+	const DESTINATIONS = [...warehouseList, ...lakeList].flat().filter(a => a).map(t => t.toUpperCase());
 
 	if (!EVENTS_TABLE_NAME) {
 		PARAMS.EVENTS_TABLE_NAME = defaultEventsTableName;
@@ -42,7 +43,6 @@ module.exports = function validate(PARAMS = { ...process.env }) {
 		PARAMS.USERS_TABLE_NAME = defaultUsersTableName;
 		USERS_TABLE_NAME = defaultUsersTableName;
 		process.env.USERS_TABLE_NAME = defaultUsersTableName;
-
 	}
 	if (!GROUPS_TABLE_NAME) {
 		PARAMS.GROUPS_TABLE_NAME = defaultGroupsTableName;
@@ -50,21 +50,6 @@ module.exports = function validate(PARAMS = { ...process.env }) {
 		process.env.GROUPS_TABLE_NAME = defaultGroupsTableName;
 	}
 
-	if (!EVENTS_PATH) {
-		PARAMS.EVENTS_PATH = defaultEventsTableName;
-		EVENTS_PATH = defaultEventsTableName;
-		process.env.EVENTS_PATH = defaultEventsTableName;
-	}
-	if (!USERS_PATH) {
-		PARAMS.USERS_PATH = defaultUsersTableName;
-		USERS_PATH = defaultUsersTableName;
-		process.env.USERS_PATH = defaultUsersTableName;
-	}
-	if (!GROUPS_PATH) {
-		PARAMS.GROUPS_PATH = defaultGroupsTableName;
-		GROUPS_PATH = defaultGroupsTableName;
-		process.env.GROUPS_PATH = defaultGroupsTableName;
-	}
 
 
 	if (DESTINATIONS.length === 0) {
@@ -77,7 +62,7 @@ module.exports = function validate(PARAMS = { ...process.env }) {
 	}
 
 	// BIGQUERY
-	const { bigquery_project = "", bigquery_dataset = "", bigquery_service_account = "", bigquery_service_account_pass = "", bigquery_keyfile = "" } = PARAMS;
+	const { bigquery_project = "", bigquery_dataset = "", bigquery_service_account = "", bigquery_service_account_private_key = "", bigquery_keyfile = "" } = PARAMS;
 	// SNOWFLAKE
 	const { snowflake_account = "", snowflake_user = "", snowflake_password = "", snowflake_database = "", snowflake_schema = "", snowflake_warehouse = "", snowflake_role = "", snowflake_access_url = "", snowflake_stage = "", snowflake_pipe = "" } = PARAMS;
 	// REDSHIFT
@@ -85,13 +70,17 @@ module.exports = function validate(PARAMS = { ...process.env }) {
 	// MIXPANEL
 	const { mixpanel_token = "" } = PARAMS;
 	// GCS
-	const { gcs_project = "", gcs_bucket = "" } = PARAMS;
+	const { gcs_project = "", gcs_bucket = "", gcs_service_account = "", gcs_service_account_private_key = "", gcs_keyfile = "" } = PARAMS;
+	// S3
+	const { s3_bucket = "", s3_region = "", s3_access_key_id = "", s3_secret_access_key = "" } = PARAMS;
+	// AZURE BLOB STORAGE
+	const { azure_account = "", azure_account_key = "", azure_container = "" } = PARAMS;
 
 	// bigquery
 	if (DESTINATIONS.includes('BIGQUERY')) {
 		if (!bigquery_project) errors.push(new Error('bigquery_project is required'));
 		if (!bigquery_dataset) errors.push(new Error('bigquery_dataset is required'));
-		if (!bigquery_keyfile && (!bigquery_service_account || !bigquery_service_account_pass)) errors.push(new Error('bigquery_keyfile or bigquery_service_account + bigquery_service_account_pass is required'));
+		// if (!bigquery_keyfile && (!bigquery_service_account || !bigquery_service_account_private_key)) errors.push(new Error('bigquery_keyfile or bigquery_service_account + bigquery_service_account_private_key is required'));
 	}
 
 	// snowflake
@@ -127,8 +116,22 @@ module.exports = function validate(PARAMS = { ...process.env }) {
 	}
 
 	if (DESTINATIONS.includes('GCS')) {
-		if (!gcs_bucket) errors.push(new Error('gcs_bucket is required'));
 		if (!gcs_project) errors.push(new Error('gcs_project is required'));
+		if (!gcs_bucket) errors.push(new Error('gcs_bucket is required'));
+
+	}
+
+	if (DESTINATIONS.includes('S3')) {
+		if (!s3_bucket) errors.push(new Error('s3_bucket is required'));
+		if (!s3_region) errors.push(new Error('s3_region is required'));
+		if (!s3_access_key_id) errors.push(new Error('s3_access_key_id is required'));
+		if (!s3_secret_access_key) errors.push(new Error('s3_secret_access_key is required'));
+	}
+
+	if (DESTINATIONS.includes('AZURE')) {
+		if (!azure_account) errors.push(new Error('azure_account is required'));
+		if (!azure_account_key) errors.push(new Error('azure_account_key is required'));
+		if (!azure_container) errors.push(new Error('azure_container is required'));
 	}
 
 	if (errors.length) {
@@ -138,7 +141,7 @@ module.exports = function validate(PARAMS = { ...process.env }) {
 
 	}
 
-	// now sent env vars for each param, case insensitive
+	// now set env vars for each param, case insensitive
 	for (const key in PARAMS) {
 		process.env[key?.toLowerCase()] = PARAMS[key];
 		process.env[key?.toUpperCase()] = PARAMS[key];
@@ -147,3 +150,6 @@ module.exports = function validate(PARAMS = { ...process.env }) {
 
 	return PARAMS;
 };
+
+
+module.exports = validate;

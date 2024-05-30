@@ -157,7 +157,6 @@ export type Schema = SchemaField[];
 
 // Insert result type
 export type InsertResult = {
-  dest: Destinations; // Destination of the insert operation
   status: "success" | "error" | string; // Status of the insert operation
   insertedRows?: number; // Number of rows successfully inserted
   failedRows?: number; // Number of rows that failed to insert
@@ -168,6 +167,78 @@ export type InsertResult = {
   message?: string; // Message from the operation
 };
 
+export type MiddlewareResponse = {
+  name: Destinations;
+  result: InsertResult;
+};
+
 export type logEntry = StringOnlyTuple | StringObjectTuple;
 type StringOnlyTuple = [string];
 type StringObjectTuple = [string, object];
+
+// TYPES FOR MIDDLEWARE
+export type BigQueryConfig = {
+  bigquery_project: string;
+  bigquery_dataset: string;
+  bigquery_table: string;
+  bigquery_keyfile: string;
+  bigquery_service_account_email: string;
+  bigquery_service_account_private_key: string;
+};
+
+export type SnowflakeConfig = {
+  snowflake_account: string;
+  snowflake_user: string;
+  snowflake_password: string;
+  snowflake_database: string;
+  snowflake_schema: string;
+  snowflake_warehouse: string;
+  snowflake_role: string;
+  snowflake_access_url: string;
+  snowflake_stage: string;
+  snowflake_pipe: string;
+  snowflake_private_key: string;
+  snowflake_region: string;
+  snowflake_provider: string;
+};
+
+export type RedshiftConfig = {
+  redshift_workgroup: string;
+  redshift_database: string;
+  redshift_region: string;
+  redshift_access_key_id: string;
+  redshift_secret_access_key: string;
+  redshift_schema_name: string;
+  redshift_session_token: string;
+};
+
+export type GCSConfig = {
+  gcs_project: string;
+  gcs_bucket: string;
+  gcs_service_account: string;
+  gcs_service_account_private_key: string;
+  gcs_keyfile: string;
+};
+
+export type S3Config = {
+  s3_bucket: string;
+  s3_region: string;
+  s3_access_key_id: string;
+  s3_secret_access_key: string;
+};
+
+export type AzureConfig = {
+  azure_account: string;
+  azure_account_key: string;
+  azure_container: string;
+};
+
+export type otherOptions = {
+  WAREHOUSES: string;
+  LAKES: string;
+  EVENTS_TABLE_NAME: string;
+  USERS_TABLE_NAME: string;
+  GROUPS_TABLE_NAME: string;
+};
+
+export type AllConfigs = BigQueryConfig & SnowflakeConfig & RedshiftConfig & GCSConfig & otherOptions;

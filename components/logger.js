@@ -1,8 +1,14 @@
+/**
+ * @fileoverview a simple logger that can be used in both CLI and structured modes with a simple API
+ * 
+ */
+
+
 const u = require("ak-tools");
 let logBuffer = [];
 let verbose = false;
 let cli_mode = false;
-let LOG_MAX_SIZE = 1000000;
+let LOG_MAX_SIZE = 1000;
 let logging = true;
 
 function setVerbose(value) {

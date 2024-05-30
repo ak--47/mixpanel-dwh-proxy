@@ -1,3 +1,8 @@
+/**
+ * @fileoverview CORS Configuration to add the right headers to the response
+ * note: if FRONTEND_URL is not provided, the CSP headers will be set to the most permissive (unsafe)
+ */
+
 module.exports = function (app, FRONTEND_URL = "") {
 	// CORS Middleware
 	app.use((req, res, next) => {

@@ -10,6 +10,7 @@
 /** @typedef {import('./types').Endpoints} Endpoints */
 /** @typedef {import('./types').IncomingData} IncomingData */
 /** @typedef {import('./types').FlatData} WarehouseData */
+/** @typedef {import('./types').TableNames} TableNames */
 
 // DEPENDENCIES
 const express = require('express');
@@ -18,6 +19,7 @@ const { version } = require('./package.json');
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 dayjs.extend(utc);
+const { clone } = require('ak-tools');
 
 
 // CODE SPLITTING
@@ -25,7 +27,8 @@ const setupCORS = require('./components/corsConfig');
 const proxyAssets = require('./components/proxyAssets');
 const validateEnv = require('./components/validate');
 const bodyParse = require('./components/bodyParse');
-const { parseSDKData } = require('./components/parser');
+const { parseSDKData, flattenAndRenameForWarehouse, schematizeForWarehouse } = require('./components/transforms');
+
 const log = require('./components/logger');
 
 // MIDDLEWARE
@@ -34,62 +37,56 @@ const snowflake = require('./middleware/snowflake');
 const redshift = require('./middleware/redshift');
 const mixpanel = require('./middleware/mixpanel');
 const gcs = require('./middleware/gcs');
-const middleware = { bigquery, snowflake, redshift, mixpanel, gcs };
-
-// HELPERS
-const { clone } = require('ak-tools');
-const profileOps = ['$set', '$set_once', '$unset', '$delete', '$append', '$union', '$delete', '$increment'];
+const s3 = require('./middleware/s3');
+const azure = require('./middleware/azure');
+const middleware = { bigquery, snowflake, redshift, mixpanel, gcs, s3, azure };
 
 
-// ENV
-require('dotenv').config();
+
+// ENV VARS + CONFIG
+require('dotenv').config({ override: false });
 const PARAMS = validateEnv();
 const NODE_ENV = process.env.NODE_ENV || 'prod';
 if (NODE_ENV === 'dev') { log.verbose(true); log.cli(true); }
 if (NODE_ENV === 'test') { log.verbose(true); log.cli(true); }
 if (NODE_ENV === 'prod') { log.verbose(false); log.cli(false); }
 log(`running in ${NODE_ENV} mode; version: ${version}; verbose: ${log.isVerbose()} cli: ${log.isCli()}`);
-const PORT = process.env.PORT || 8080;
-let FRONTEND_URL = process.env.FRONTEND_URL || "";
-if (FRONTEND_URL === "none") FRONTEND_URL = "";
-
-// DESTINATIONS
 
 const WAREHOUSES = process.env.WAREHOUSES || "MIXPANEL";
 const warehouseList = WAREHOUSES.split(',').map(wh => wh.trim()).filter(a => a);
 const LAKE = process.env.LAKE || "";
 const lakeList = LAKE.split(',').map(wh => wh.trim()).filter(a => a);
+const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'events';
+const USERS_TABLE_NAME = process.env.USERS_TABLE_NAME || 'users';
+const GROUPS_TABLE_NAME = process.env.GROUPS_TABLE_NAME || 'groups';
+const MIXPANEL_TOKEN = process.env.MIXPANEL_TOKEN || "";
+
 /** @type {Destinations[]} */
 const DESTINATIONS = [...warehouseList, ...lakeList].flat().filter(a => a).map(t => t.toLowerCase());
 /** @type {Runtimes} */
 let RUNTIME = process.env.RUNTIME?.toUpperCase() || 'LOCAL';
-
-const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'events';
-const USERS_TABLE_NAME = process.env.USERS_TABLE_NAME || 'users';
-const GROUPS_TABLE_NAME = process.env.GROUPS_TABLE_NAME || 'groups';
-const EVENTS_PATH = process.env.EVENTS_PATH || 'events';
-const USERS_PATH = process.env.USERS_PATH || 'users';
-const GROUPS_PATH = process.env.GROUPS_PATH || 'groups';
-
-const MIXPANEL_TOKEN = process.env.MIXPANEL_TOKEN || "";
-const tableNames = { eventTable: EVENTS_TABLE_NAME, userTable: USERS_TABLE_NAME, groupTable: GROUPS_TABLE_NAME };
+/** @type {TableNames} */
+const TABLE_NAMES = { eventTable: EVENTS_TABLE_NAME, userTable: USERS_TABLE_NAME, groupTable: GROUPS_TABLE_NAME };
 
 // MIDDLEWARE
+let FRONTEND_URL = process.env.FRONTEND_URL || "";
+if (FRONTEND_URL === "none") FRONTEND_URL = "";
 setupCORS(app, FRONTEND_URL);
 proxyAssets(app, NODE_ENV);
 bodyParse(app);
 
 // ROUTES
 //? https://developer.mixpanel.com/reference/track-event
-app.post('/track', async (req, res) => await handleMixpanelIncomingReq('track', req, res));
-app.post('/engage', async (req, res) => await handleMixpanelIncomingReq('engage', req, res));
-app.post('/groups', async (req, res) => await handleMixpanelIncomingReq('groups', req, res));
+app.post('/track', async (req, res) => await handleMixpanelRequest('track', req, res));
+app.post('/engage', async (req, res) => await handleMixpanelRequest('engage', req, res));
+app.post('/groups', async (req, res) => await handleMixpanelRequest('groups', req, res));
 app.all('/', (req, res) => res.status(200).json({ status: "OK" }));
 app.all('/ping', (req, res) => res.status(200).json({ status: "OK", message: "pong", version }));
 app.all('/decide', (req, res) => res.status(299).send({ error: "the /decide endpoint is deprecated" }));
 app.all('/drop', async (req, res) => await handleDrop(req, res));
 
 // START by runtime
+const PORT = process.env.PORT || 8080;
 if (RUNTIME === 'LAMBDA') RUNTIME = 'AWS';
 if (RUNTIME === 'FUNCTIONS') RUNTIME = 'AZURE';
 if (RUNTIME === 'CLOUD_FUNCTIONS') RUNTIME = 'GCP';
@@ -122,7 +119,7 @@ const activeMiddleware = DESTINATIONS
 
 for (const { name, api: middleware } of activeMiddleware) {
 	if (middleware.init) {
-		middleware.init(tableNames);
+		middleware.init(TABLE_NAMES);
 		log(`initializing ${name}`);
 	}
 
@@ -136,7 +133,7 @@ for (const { name, api: middleware } of activeMiddleware) {
  * @param  {import('express').Request} req
  * @param  {import('express').Response} res
  */
-async function handleMixpanelIncomingReq(type, req, res) {
+async function handleMixpanelRequest(type, req, res) {
 	if (!type) return res.status(400).send('No type provided');
 	if (!req.body) return res.status(400).send('No data provided');
 
@@ -161,7 +158,7 @@ async function handleMixpanelIncomingReq(type, req, res) {
 		}
 	});
 
-	const flatData = formatForWarehouse(data);
+	const flatData = flattenAndRenameForWarehouse(data);
 
 	const results = [];
 
@@ -171,7 +168,7 @@ async function handleMixpanelIncomingReq(type, req, res) {
 			try {
 				log(`sending ${type} data to ${name}`);
 				const uploadData = middleware.name === 'mixpanel' ? data : clone(flatData);
-				const result = await api(uploadData, type, tableNames);
+				const result = await api(uploadData, type, TABLE_NAMES);
 				results.push({ name, result });
 				return { name, result };
 			}
@@ -195,13 +192,13 @@ async function handleMixpanelIncomingReq(type, req, res) {
 
 async function handleDrop(req, res) {
 	const results = [];
-	if (NODE_ENV === "prod") return res.status(400).send("Cannot drop tables in production");
+	if (NODE_ENV === "prod") return res.status(403).send("Cannot drop tables in production");
 
 	const drops = await Promise.all(activeMiddleware.map(async middleware => {
 		const { name, api } = middleware;
 		try {
 			log(`DROPPING TABLES in ${name}`);
-			const status = await api.drop(tableNames);
+			const status = await api.drop(TABLE_NAMES);
 			results.push({ name, status });
 			return { name, status };
 		}
@@ -216,70 +213,6 @@ async function handleDrop(req, res) {
 }
 
 
-/**
- * prep data for each warehouse by basically flattening it + cleaning key names
- * also normalize certain values
- * todo: allow a user to define their own values to schematize
- * @param  {IncomingData} data
- * @returns {WarehouseData}
- */
-function formatForWarehouse(data) {
-	const copy = clone(data);
-	return copy.map(record => {
-		//get rid of all $'s for /engage requests
-		for (const key in record) {
-			if (key.startsWith('$')) {
-				// $set, $set_once, etc... are "operations" and their values are the "properties"
-				if (profileOps.includes(key)) {
-					record.operation = key;
-					for (const prop in record[key]) {
-						record[prop] = record[key][prop];
-					}
-					delete record[key];
-				}
 
-				//for $distinct_id, $token, $time, $ip, etc...
-				else {
-					record[key.slice(1)] = record[key];
-					delete record[key];
-				}
-			}
-			if (key === 'properties') {
-				for (const prop in record.properties) {
-					//get rid of all $'s in event properties
-					if (prop.startsWith('$')) {
-						record[prop.slice(1)] = record.properties[prop];
-						delete record.properties[prop];
-					}
-
-					//convert time to ISO string... time might be sec or ms
-					else if (prop === 'time') {
-						const timeValue = record.properties.time;
-						if (timeValue.toString().length === 13) {
-							// Unix timestamp in milliseconds
-							record.event_time = dayjs(timeValue).toISOString();
-						} else {
-							// Unix timestamp in seconds
-							record.event_time = dayjs.unix(timeValue).toISOString();
-						}
-						delete record.properties.time;
-					}
-
-					//todo: add more transformations here
-
-					//if it's not a $, just move it up a level
-					else {
-						record[prop] = record.properties[prop];
-						delete record.properties[prop];
-					}
-
-				}
-				delete record.properties;  //side-note: do we have to keep deleting properties?
-			}
-		}
-		return record;
-	});
-}
-
-module.exports.parseSDKData = parseSDKData;
-module.exports.handleMixpanelData = handleMixpanelIncomingReq;
+// module.exports.parseSDKData = parseSDKData;
+// module.exports.handleMixpanelData = handleMixpanelRequest;

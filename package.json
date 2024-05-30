@@ -16,7 +16,8 @@
 		"deploy:aws": "./scripts/aws-deploy.sh",
 		"deploy:azure": "./scripts/aure-deploy.sh",
 		"prune": "rm -rf tmp/*",
-		"drop": "curl localhost:8080/drop"
+		"drop": "curl localhost:8080/drop",
+		"dev:bigquery": "npm run prune && NODE_ENV=dev WAREHOUSE=bigquery LAKE='' nodemon --inspect --ignore tmp/ server.js"
 	},
 	"keywords": [
 		"mixpanel",
@@ -33,6 +34,8 @@
 	"license": "ISC",
 	"dependencies": {
 		"@aws-sdk/client-redshift-data": "^3.583.0",
+		"@aws-sdk/client-s3": "^3.583.0",
+		"@azure/storage-blob": "^12.18.0",
 		"@google-cloud/bigquery": "^7.7.0",
 		"@google-cloud/functions-framework": "^3.4.0",
 		"@google-cloud/storage": "^7.11.1",
@@ -54,6 +57,7 @@
 		"globalTeardown": "./tests/teardown.js"
 	},
 	"devDependencies": {
+		"@types/jest": "^29.5.12",
 		"ak-tools": "^1.0.58",
 		"artillery": "^2.0.12",
 		"esbuild": "^0.21.3",

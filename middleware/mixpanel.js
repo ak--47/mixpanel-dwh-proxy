@@ -19,12 +19,12 @@ if (!BASE_URL) throw new Error('BASE_URL is required; mixpanel middleware is not
  * sends a POST request to the given URL with the given data
  * @param  {DATA} data
  * @param  {Endpoints} type
+ * @returns {InsertResult}
  */
 async function main(data, type,) {
 	const start = Date.now();
 	const url = `${BASE_URL}/${type}?verbose=1`;
 	log(`\nrequest to ${shortUrl(url)} with data:\n${pp(data)} ${sep()}`);
-	let result = { status: "born", destination: "mixpanel" };
 	try {
 		const request = await fetch(url, {
 			method: 'POST',
@@ -39,12 +39,17 @@ async function main(data, type,) {
 		const duration = Date.now() - start;
 		response.duration = duration;
 		log(`got ${status} ${statusText} from ${shortUrl(url)}:\n${pp(response)} ${sep()}`);
-
-		return response;
+		const result = { status: "success", duration, failedRows: 0, insertedRows: data.length };
+		if (response.error) {
+			result.status = "error";
+			result.errorMessage = response.error;
+		}
+		return result;
 	}
 	catch (error) {
+		const duration = Date.now() - start;
 		console.error(`error in makeRequest: ${error}`);
-		return { error };
+		return { status: "error", duration, errorMessage: error.message };
 	}
 }
 
@@ -70,5 +75,5 @@ main.init = () => {
 main.drop = () => {
 	log(`mixpanel tables cannot be dropped...yet`);
 	return "nothing to drop";
-}
+};
 module.exports = main;

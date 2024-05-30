@@ -264,7 +264,7 @@ async function waitForTableToBeReady(table, retries = 20, maxInsertAttempts = 20
  */
 async function insertData(batch, table, schema) {
 	log("Starting data insertion...\n");
-	let result = { status: "born", destination: "bigQuery" };
+	let result = { status: "born" };
 
 	/** @type {import('@google-cloud/bigquery').InsertRowsOptions} */
 	const options = {
@@ -278,7 +278,7 @@ async function insertData(batch, table, schema) {
 	try {
 		const rows = prepareRowsForInsertion(batch, schema);
 		const [response] = await table.insert(rows, options);
-		result = { status: "success", insertedRows: rows.length, failedRows: 0, destination: "bigQuery" };
+		result = { status: "success", insertedRows: rows.length, failedRows: 0};
 	} catch (error) {
 		debugger;
 		if (error.name === "PartialFailureError") {
@@ -291,7 +291,6 @@ async function insertData(batch, table, schema) {
 				failedRows,
 				insertedRows,
 				errors: uniqueErrors,
-				destination: "bigQuery",
 
 			};
 			log(`Partial failure`);
@@ -306,7 +305,7 @@ async function insertData(batch, table, schema) {
 	}
 
 	log("\n\tData insertion complete.\n");
-	return { ...result, dest: "bigQuery" };
+	return { ...result };
 }
 
 /**

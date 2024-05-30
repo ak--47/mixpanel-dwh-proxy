@@ -39,7 +39,7 @@ To deploy the Mixpanel DWH Proxy, you need to set the following environment vari
 - `bigquery_project`: Your BigQuery project ID.
 - `bigquery_dataset`: Your BigQuery dataset ID.
 - `bigquery_service_account`: Your BigQuery service account email.
-- `bigquery_service_account_pass`: Your BigQuery service account private key.
+- `bigquery_service_account_private_key`: Your BigQuery service account private key.
 - `bigquery_keyfile`: Path to your BigQuery keyfile.
 
 ### Snowflake Specific Variables
