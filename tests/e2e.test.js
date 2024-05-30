@@ -4,6 +4,18 @@ const u = require('ak-tools');
 const { version } = require('../package.json');
 const { spawn } = require('child_process');
 
+const setup = require('./setup.js');
+const teardown = require('./teardown.js');
+
+beforeAll(async () => {
+  await setup();
+});
+
+afterAll(async () => {
+  await teardown();
+});
+
+
 const timeout = 60000;
 
 describe('DATA', () => {

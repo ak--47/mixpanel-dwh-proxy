@@ -9,6 +9,7 @@ module.exports = async () => {
 	console.log('starting test server + frontend...\n\n');
 	global.__SERVER__ = spawn('npm', ['run', 'dev']);
 	global.__FRONTEND__ = spawn('npm', ['run', 'frontend']);
+	global.__isDebugMode__ = process.env.NODE_OPTIONS?.includes('--inspect') || process.env.NODE_OPTIONS?.includes('--inspect-brk');
 
 	const mainServerStarted = new Promise(resolve => {
 		global.__SERVER__.stdout.once('data', data => {

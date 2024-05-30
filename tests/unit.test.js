@@ -102,7 +102,7 @@ describe('VALIDATION', () => {
 			LAKES: 'AZURE'
 		};
 
-		expect(() => validate()).toThrow('azure_account_name is required');
+		expect(() => validate()).toThrow('azure_account is required');
 	});
 
 	test('case insensitivity', () => {

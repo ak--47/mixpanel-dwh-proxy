@@ -11,6 +11,7 @@ const { BigQuery } = require("@google-cloud/bigquery");
 
 const NODE_ENV = process.env.NODE_ENV || "prod";
 const u = require("ak-tools");
+const { schematizeForWarehouse } = require('../components/transforms.js');
 const schemas = require("./bigquery-schemas.js");
 const log = require("../components/logger.js");
 
@@ -168,21 +169,21 @@ async function verifyOrCreateTables(tableNames) {
 
 			/** @type {import('@google-cloud/bigquery').TableMetadata} */
 			const tableMetaData = {
-                schema: tableSchema,
+				schema: tableSchema,
 				timePartitioning: {
-                    type: 'DAY',
-                    field: type === "track" ? "event_time" : "insert_time"
-                },
-                clustering: {
-                    fields: [] // needs to be populated
-                }
-            };
+					type: 'DAY',
+					field: type === "track" ? "event_time" : "insert_time"
+				},
+				clustering: {
+					fields: [] // needs to be populated
+				}
+			};
 
-			if (type === "track") tableMetaData?.clustering?.fields?.push("event")
-			if (type === "user") tableMetaData?.clustering?.fields?.push("distinct_id")
-			if (type === "group") tableMetaData?.clustering?.fields?.push("group_id")
-			
-			
+			if (type === "track") tableMetaData?.clustering?.fields?.push("event");
+			if (type === "user") tableMetaData?.clustering?.fields?.push("distinct_id");
+			if (type === "group") tableMetaData?.clustering?.fields?.push("group_id");
+
+
 			const [newTable] = await client.dataset(bigquery_dataset).createTable(table, tableMetaData);
 			const [moreTables] = await client.dataset(bigquery_dataset).getTables();
 			const moreTableExists = moreTables.some((t) => t.id === table);
@@ -276,9 +277,11 @@ async function insertData(batch, table, schema) {
 	};
 
 	try {
-		const rows = prepareRowsForInsertion(batch, schema);
+		const rows = schematizeForWarehouse(batch, schema);
+		// for JSON columns, BQ wants a string
+		rows.forEach(row => row.properties = JSON.stringify(row.properties));
 		const [response] = await table.insert(rows, options);
-		result = { status: "success", insertedRows: rows.length, failedRows: 0};
+		result = { status: "success", insertedRows: rows.length, failedRows: 0 };
 	} catch (error) {
 		debugger;
 		if (error.name === "PartialFailureError") {
@@ -326,73 +329,6 @@ function getBigQuerySchema(type) {
 }
 
 /**
- * @param  {any} value
- * @param  {BQTypes} type
- */
-function convertField(value, type) {
-	switch (type) {
-		case "STRING":
-			return value?.toString();
-		case "TIMESTAMP":
-			return value;
-		case "DATE":
-			return value;
-		case "INT64":
-			return parseInt(value);
-		case "FLOAT64":
-			return parseFloat(value);
-		case "BOOLEAN":
-			if (typeof value === "boolean") return value;
-			if (typeof value === "number") return value === 1;
-			if (typeof value === "string") return value?.toLowerCase() === "true";
-		case "RECORD":
-			if (Array.isArray(value)) return JSON.stringify(value);
-			if (typeof value === "object") return JSON.stringify(value);
-			if (typeof value === "string") return value;
-		case "JSON":
-			if (Array.isArray(value)) return JSON.stringify(value);
-			if (typeof value === "object") return JSON.stringify(value);
-			if (typeof value === "string") return value;
-		case "STRUCT":
-			if (Array.isArray(value)) return JSON.stringify(value);
-			if (typeof value === "object") return JSON.stringify(value);
-			if (typeof value === "string") return value;
-		default:
-			return value;
-	}
-}
-
-function prepareRowsForInsertion(batch, schema) {
-	const currentTime = new Date().toISOString();
-	return batch.map((row) => {
-		const newRow = {};
-		newRow.insert_time = currentTime;
-		// schematized fields
-		const schematizedFields = Array.from(
-			new Set(
-				Object.entries(schema)
-					.flat()
-					.filter(a => typeof a !== 'string')
-					.flat()
-					.filter(a => a.name !== "properties").map(a => a.name)
-			)
-		);
-		schematizedFields.forEach((field) => {
-			if (row[field] !== undefined) {
-				try {
-					newRow[field] = convertField(row[field], 'STRING');
-					delete row[field];
-				} catch (error) {
-					debugger;
-				}
-			}
-		});
-		newRow.properties = convertField({ ...row }, "JSON");
-		return newRow;
-	});
-}
-
-/**
  * drops all 3 mixpanel tables... this is a destructive operation
  * @param  {TableNames} tableNames
  */
@@ -411,3 +347,5 @@ async function dropTables(tableNames) {
 main.drop = dropTables;
 main.init = initializeBigQuery;
 module.exports = main;
+
+

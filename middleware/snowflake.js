@@ -514,6 +514,7 @@ async function copyIntoData(batch, table, schema) {
  * @param  {WarehouseData} batch
  * @param  {string} table
  * @param  {Schema} schema
+ * @return {Promise<InsertResult>}
  */
 async function insertWithPipe(batch, table, schema) {
 	log("Appending data using Snowpipe...\n");
@@ -625,7 +626,7 @@ async function flushStageToTable(table, schema, stageName) {
 	try {
 		const copyResult = await executeSQL(copyCommand);
 		log(`All files in stage ${stageName} have been copied to table ${table}`);
-		return { status: 'success', dest: "Snowflake", message: `All files in stage ${stageName} have been copied to table ${table}` };
+		return { status: 'success', message: `All files in stage ${stageName} have been copied to table ${table}` };
 	} catch (error) {
 		log(`Error copying data from stage to table: ${error.message}`, error);
 		throw error;
@@ -646,7 +647,7 @@ async function deleteAllFilesFromStage(stageName) {
 	try {
 		const removeStageFilesResult = await executeSQL(removeCommand);
 		log(`All files have been removed from stage ${stageName}`);
-		return { status: 'success', message: `All files have been removed from stage ${stageName}`, dest: "Snowflake" };
+		return { status: 'success', message: `All files have been removed from stage ${stageName}` };
 	} catch (error) {
 		log(`Error removing files from stage: ${error.message}`, error);
 		throw error;
