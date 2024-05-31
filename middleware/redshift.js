@@ -6,12 +6,16 @@ REDSHIFT MIDDLEWARE
 const { RedshiftDataClient, ExecuteStatementCommand, DescribeStatementCommand } = require('@aws-sdk/client-redshift-data');
 const log = require('../components/logger.js');
 const u = require('ak-tools');
-const { schematizeForWarehouse } = require('../components/parser.js');
+const { schematizeForWarehouse } = require('../components/transforms.js');
 const schemas = require('./redshift-schemas.js');
 
 const NODE_ENV = process.env.NODE_ENV || "prod";
 let MAX_RETRIES = process.env.MAX_RETRIES || 5;
 if (typeof MAX_RETRIES === "string") MAX_RETRIES = parseInt(MAX_RETRIES);
+if (NODE_ENV === 'test') {
+	log.verbose(true);
+	log.cli(true);
+}
 
 // CORE MIDDLEWARE CONTRACT
 /** @typedef {import('../types').Entities} Entities */
@@ -49,6 +53,7 @@ let areTablesReady;
 async function main(data, type, tableNames) {
 	const startTime = Date.now();
 	const init = await initializeRedshift(tableNames);
+	if (!init.every(i => i)) throw new Error("Failed to initialize Redshift middleware.");
 	const { eventTable, userTable, groupTable } = tableNames;
 
 	// Determine the target table based on the record type
@@ -135,7 +140,7 @@ async function createRedshiftClient() {
 	try {
 		const verifyResult = await executeSQL('SELECT 1', false, "dev");
 		if (verifyResult === 1) {
-			log('Redshift client created and credentials are valid.');
+			log('[REDSHIFT] client created and credentials are valid.');
 			return true;
 		}
 		else {
@@ -152,19 +157,19 @@ async function verifyOrCreateTables(tableNames) {
 	for (const [type, table] of tableNames) {
 		const tableExists = await checkIfTableExists(table);
 		if (!tableExists) {
-			log(`Table ${table} does not exist. Creating...`);
+			log(`[REDSHIFT] Table ${table} does not exist. Creating...`);
 			const tableSchema = getRedshiftSchema(type);
 			const sqlSchema = tableSchema.map(f => `${f.name} ${f.type}`).join(", ");
 			const tableCreationResult = await createTable(table, sqlSchema);
 			// const tableReady = await waitForTableToBeReady(table);
 			results.push(true);
 			// if (tableReady) {
-			// 	log(`Table ${table} created and ready.`);
+			// 	log(`[REDSHIFT] Table ${table} created and ready.`);
 			// } else {
-			// 	log(`Failed to create table ${table}`);
+			// 	log(`[REDSHIFT] Failed to create table ${table}`);
 			// }
 		} else {
-			log(`Table ${table} already exists.`);
+			log(`[REDSHIFT] Table ${table} already exists.`);
 			// const tableReady = await waitForTableToBeReady(table);
 			results.push(true);
 		}
@@ -186,7 +191,7 @@ async function createTable(tableName, schema) {
 }
 
 async function insertData(batch, table, schema) {
-	log("Starting data insertion...\n");
+	log("[REDSHIFT] Starting data insertion...");
 	let result = { status: "born", dest: "redshift" };
 
 	const columnNames = schema.map(f => f.name).join(", ");
@@ -198,17 +203,17 @@ async function insertData(batch, table, schema) {
 	const insertSQL = `INSERT INTO ${redshift_schema_name}.${table} (${columnNames}) VALUES ${valuesString}`;
 
 	const start = Date.now();
-	try {		
+	try {
 		const insertResult = await executeSQL(insertSQL, true);
 		const duration = Date.now() - start;
 		result = { ...result, duration, status: 'success', insertedRows: batch.length, failedRows: 0 };
 	} catch (error) {
 		const duration = Date.now() - start;
 		result = { ...result, status: 'error', errorMessage: error.message, errors: error, duration, insertedRows: 0, failedRows: batch.length };
-		log(`Error inserting: ${error.message}`, error, batch);
+		log(`[REDSHIFT] Error inserting: ${error.message}`, error, batch);
 	}
 
-	log('\n\nData insertion complete;\n\n');
+	log('[REDSHIFT] Data insertion complete;');
 	return result;
 }
 
@@ -224,7 +229,7 @@ async function insertWithRetry(batch, table, schema) {
 		} catch (error) {
 			if (error.message.includes('lock')) {
 				const waitTime = backoff(attempt);
-				log(`Retry attempt ${attempt + 1}: waiting for ${waitTime} ms before retrying...`);
+				log(`[REDSHIFT] Retry attempt ${attempt + 1}: waiting for ${waitTime} ms before retrying...`);
 				await new Promise(resolve => setTimeout(resolve, waitTime));
 				attempt++;
 			} else {
@@ -281,7 +286,7 @@ async function executeSQL(sql, isBatch = false, altDb = "", altWrkgrp = "") {
 			}
 			if (statementStatus !== 'FINISHED') {
 				const waitTime = u.rand(250, 420);
-				// log(`Statement ${statementId} is ${statementStatus}. Waiting ${waitTime}ms before checking again...`);
+				// log(`[REDSHIFT] Statement ${statementId} is ${statementStatus}. Waiting ${waitTime}ms before checking again...`);
 				await u.sleep(waitTime);
 			}
 		} while (statementStatus !== 'FINISHED');
@@ -290,7 +295,7 @@ async function executeSQL(sql, isBatch = false, altDb = "", altWrkgrp = "") {
 		return ResultRows;
 
 	} catch (error) {
-		log(`Failed executing SQL:\n\n${error.message}\n\n`);
+		log(`[REDSHIFT] Failed executing SQL:${error.message}`);
 		debugger;
 		throw error;
 	}
@@ -322,14 +327,18 @@ function formatSQLValue(value, type) {
 
 
 async function dropTables(tableNames) {
+	log(`[REDSHIFT] Dropping tables...`);
 	const targetTables = Object.values(tableNames);
+	const droppedTables = [];
 	const dropPromises = targetTables.map(async (table) => {
 		const dropTableQuery = `DROP TABLE IF EXISTS ${redshift_schema_name}.${table}`;
+		droppedTables.push(table);
 		return await executeSQL(dropTableQuery);
 	});
 	const results = await Promise.all(dropPromises);
-	log(`Dropped tables: ${targetTables.join(', ')}`);
-	return results.flat();
+	log(`[REDSHIFT] Dropped tables: ${targetTables.join(', ')}`);
+	return { numDropped: droppedTables.length, tablesDropped: droppedTables };
+
 }
 
 main.drop = dropTables;
@@ -342,52 +351,52 @@ async function verifyOrCreateSchema() {
 	const checkSchemaQuery = `SELECT schema_name FROM information_schema.schemata WHERE schema_name = '${redshift_schema_name}'`;
 	const result = await executeSQL(checkSchemaQuery);
 	if (!result || result.length === 0) {
-		log(`Schema ${redshift_schema_name} does not exist. Creating...`);
+		log(`[REDSHIFT] Schema ${redshift_schema_name} does not exist. Creating...`);
 		const createSchemaQuery = `CREATE SCHEMA ${redshift_schema_name}`;
 		await executeSQL(createSchemaQuery);
-		log(`Schema ${redshift_schema_name} created.`);
+		log(`[REDSHIFT] Schema ${redshift_schema_name} created.`);
 	} else {
-		log(`Schema ${redshift_schema_name} already exists.`);
+		log(`[REDSHIFT] Schema ${redshift_schema_name} already exists.`);
 	}
 	return true;
 }
 
 
 // async function waitForTableToBeReady(tableName, retries = 20, maxInsertAttempts = 20) {
-// 	log(`Checking if table ${tableName} exists...`);
+// 	log(`[REDSHIFT] Checking if table ${tableName} exists...`);
 
 // 	for (let i = 0; i < retries; i++) {
 // 		const exists = await checkIfTableExists(tableName);
 // 		if (exists) {
-// 			log(`Table ${tableName} is confirmed to exist on attempt ${i + 1}.`);
+// 			log(`[REDSHIFT] Table ${tableName} is confirmed to exist on attempt ${i + 1}.`);
 // 			break;
 // 		}
 // 		const sleepTime = Math.random() * (5000 - 1000) + 1000;
-// 		log(`Sleeping for ${sleepTime} ms; waiting for table existence; attempt ${i + 1}`);
+// 		log(`[REDSHIFT] Sleeping for ${sleepTime} ms; waiting for table existence; attempt ${i + 1}`);
 // 		await new Promise(resolve => setTimeout(resolve, sleepTime));
 
 // 		if (i === retries - 1) {
-// 			log(`Table ${tableName} does not exist after ${retries} attempts.`);
+// 			log(`[REDSHIFT] Table ${tableName} does not exist after ${retries} attempts.`);
 // 			return false;
 // 		}
 // 	}
 
-// 	log(`Checking if table ${tableName} is ready for operations...`);
+// 	log(`[REDSHIFT] Checking if table ${tableName} is ready for operations...`);
 // 	for (let insertAttempt = 0; insertAttempt < maxInsertAttempts; insertAttempt++) {
 // 		try {
 // 			const dummyRecord = { "dummy_column": "dummy_value" };
 // 			const dummyInsert = await insertDummyRecord(tableName, dummyRecord);
 // 			if (dummyInsert) {
-// 				log(`Table ${tableName} is ready for operations`);
+// 				log(`[REDSHIFT] Table ${tableName} is ready for operations`);
 // 				return true;
 // 			}
 // 			if (!dummyInsert) {
-// 				log(`Table ${tableName} is not ready for operations`);
+// 				log(`[REDSHIFT] Table ${tableName} is not ready for operations`);
 // 				throw "retry";
 // 			}
 // 		} catch (error) {
 // 			const sleepTime = Math.random() * (5000 - 1000) + 1000;
-// 			log(`Sleeping ${sleepTime} ms for table ${tableName}, retrying... attempt #${insertAttempt + 1}`);
+// 			log(`[REDSHIFT] Sleeping ${sleepTime} ms for table ${tableName}, retrying... attempt #${insertAttempt + 1}`);
 // 			await new Promise(resolve => setTimeout(resolve, sleepTime));
 // 		}
 // 	}

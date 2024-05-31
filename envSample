@@ -1,0 +1,73 @@
+# Description: Configuration file for the Mixpanel Proxy
+
+# choose warehouses and lakes; comma separated. mixpanel is an optional destination
+DESTINATIONS=bigquery, snowflake, redshift, mixpanel, gcs, s3, azure
+
+# config
+MAX_RETRIES=10 # max retries for failed requests
+# FRONTEND_URL=https://aktunes.com # used for more secure CORS configuration; if unset, defaults to *
+
+# tables + file prefix; for DWH, these are the table names, for lakes, these are the prefixes
+EVENTS_TABLE_NAME=my_events_table
+USERS_TABLE_NAME=my_users_table
+GROUPS_TABLE_NAME=my_groups_table
+
+# MIDDLEWARE PARAMS
+# you only need to set these if you are using the middleware
+# everything is case insensitive
+
+# mixpanel
+# mixpanel_token=989e03cc613ff050ece151c87975c250 # optional: if provided you don't need to pass to client side init()
+mixpanel_region=us
+
+# snowflake
+snowflake_account=foo
+snowflake_user=bar
+snowflake_password=baz
+snowflake_database=MY_DATABASE
+snowflake_schema=MY_SCHEMA
+snowflake_warehouse=MY_WH
+snowflake_role=MY_ROLE
+snowflake_access_url=https://my-account.snowflakecomputing.com
+# snowflake_stage=MY_STAGE # means we COPY INTO
+# snowflake_pipe=MY_PIPE #means we use a pipe to load data, this is the onyl reason you need keys + regions
+snowflake_private_key="-----BEGIN PRIVATE KEY-----\n ... \n-----END PRIVATE KEY-----\n"
+snowflake_region=us-central1
+snowflake_provider=gcp
+
+# bigquery
+bigquery_project=foo
+bigquery_dataset=bar
+# bigquery_keyfile=credentials.json # if you have a keyfile, you don't need to set the service account and private key
+bigquery_service_account=my-service@my-acct.iam.gserviceaccount.com
+bigquery_service_account_private_key="-----BEGIN PRIVATE KEY-----\n ... \n-----END PRIVATE KEY-----\n"
+
+# gcs
+gcs_project=foo
+gcs_bucket=my_bucket
+# gcs_keyfile=credentials.json # if you have a keyfile, you don't need to set the service account and private key
+gcs_service_account=my-service@my-acct.iam.gserviceaccount.com
+gcs_service_account_private_key="-----BEGIN PRIVATE KEY-----\n ... \n-----END PRIVATE KEY-----\n"
+
+
+# s3
+s3_bucket=my_bucket
+s3_region=us-east-2
+s3_access_key_id=foo
+s3_secret_access_key=bar
+
+# azure
+azure_account=my_account
+azure_key=my key
+# azure_connection_string=myconnectionstring # if you have a connection string, you don't need to set the key
+azure_container=my-container
+
+
+# redshift
+redshift_workgroup=my-workgroup
+redshift_database=my_database
+redshift_access_key_id=my_access_key
+redshift_secret_access_key=my_secret_key
+redshift_schema_name=public
+redshift_region=us-east-2
+# redshift_session_token=none # optional: if provided, we use temporary credentials

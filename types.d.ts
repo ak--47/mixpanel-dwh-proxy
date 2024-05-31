@@ -9,7 +9,10 @@ export type Runtimes =
   | "AZURE"
   | "LOCAL"
   | string;
-export type Destinations = "REDSHIFT" | "BIGQUERY" | "SNOWFLAKE" | "MIXPANEL" | string;
+
+export type Warehouse = "REDSHIFT" | "BIGQUERY" | "SNOWFLAKE" | "MIXPANEL";
+export type Lake = "S3" | "GCS" | "AZURE_BLOB";
+export type Targets = Warehouse | Lake | string;
 
 export type Endpoints = "track" | "engage" | "groups";
 export type Entities = "event" | "user" | "group";
@@ -154,7 +157,6 @@ export type Schema = SchemaField[];
 
 // Insert result type
 export type InsertResult = {
-  dest: Destinations; // Destination of the insert operation
   status: "success" | "error" | string; // Status of the insert operation
   insertedRows?: number; // Number of rows successfully inserted
   failedRows?: number; // Number of rows that failed to insert
@@ -165,6 +167,85 @@ export type InsertResult = {
   message?: string; // Message from the operation
 };
 
+export type MiddlewareResponse = {
+  name: Targets;
+  result: InsertResult;
+};
+
 export type logEntry = StringOnlyTuple | StringObjectTuple;
 type StringOnlyTuple = [string];
 type StringObjectTuple = [string, object];
+
+// TYPES FOR MIDDLEWARE
+export type BigQueryVars = {
+  bigquery_project: string;
+  bigquery_dataset: string;
+  bigquery_table: string;
+  bigquery_keyfile: string;
+  bigquery_service_account_email: string;
+  bigquery_service_account_private_key: string;
+};
+
+export type SnowflakeVars = {
+  snowflake_account: string;
+  snowflake_user: string;
+  snowflake_password: string;
+  snowflake_database: string;
+  snowflake_schema: string;
+  snowflake_warehouse: string;
+  snowflake_role: string;
+  snowflake_access_url: string;
+  snowflake_stage?: string;
+  snowflake_pipe?: string;
+  snowflake_private_key?: string;
+  snowflake_region?: string;
+  snowflake_provider?: string;
+};
+
+export type RedshiftVars = {
+  redshift_workgroup: string;
+  redshift_database: string;
+  redshift_region: string;
+  redshift_access_key_id: string;
+  redshift_secret_access_key: string;
+  redshift_schema_name: string;
+  redshift_session_token?: string;
+};
+
+export type GCSVars = {
+  gcs_project: string;
+  gcs_bucket: string;
+  gcs_service_account: string;
+  gcs_service_account_private_key: string;
+  gcs_keyfile: string;
+};
+
+export type S3Vars = {
+  s3_bucket: string;
+  s3_region: string;
+  s3_access_key_id: string;
+  s3_secret_access_key: string;
+};
+
+export type AzureVars = {
+  azure_account: string;
+  azure_key: string;
+  azure_container: string;
+  azure_connection_string?: string;
+};
+
+export type MixpanelVars = {
+	mixpanel_token?: string;
+	mixpanel_region?: string;
+}
+
+export type otherVars = {
+  DESTINATION: String;
+  EVENTS_TABLE_NAME: string;
+  USERS_TABLE_NAME: string;
+  GROUPS_TABLE_NAME: string;
+  BATCH_SIZE: number;
+  MAX_RETRIES: number;
+};
+
+export type EnvVars = BigQueryVars & SnowflakeVars & RedshiftVars & GCSVars & otherVars;

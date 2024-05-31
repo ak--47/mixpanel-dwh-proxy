@@ -1,3 +1,7 @@
+/**
+ * @fileoverview body parser middleware for express
+ */
+
 const bodyParser = require('body-parser');
 
 module.exports = function (app) {
