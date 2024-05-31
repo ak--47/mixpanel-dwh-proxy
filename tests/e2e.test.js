@@ -100,8 +100,10 @@ describe('DATA', () => {
 		let insertedRows, failedRows;
 		const mixpanel = data.find(d => d.name === 'mixpanel');
 		expect(mixpanel).toBeDefined();
-		expect(mixpanel.result.status).toBe(0);
-		expect(mixpanel.result.error).toBe('token, missing or empty');
+		expect(mixpanel.result.status).toBe('success');
+		({ insertedRows, failedRows } = mixpanel.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);	
 
 		const bigquery = data.find(d => d.name === 'bigquery');
 		expect(bigquery).toBeDefined();
@@ -187,8 +189,10 @@ describe('DATA', () => {
 		let insertedRows, failedRows;
 		const mixpanel = data.find(d => d.name === 'mixpanel');
 		expect(mixpanel).toBeDefined();
-		expect(mixpanel.result.status).toBe(0);
-		expect(mixpanel.result.error).toBe('token, missing or empty');
+		expect(mixpanel.result.status).toBe('success');
+		({ insertedRows, failedRows } = mixpanel.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);	
 
 		const bigquery = data.find(d => d.name === 'bigquery');
 		expect(bigquery).toBeDefined();
@@ -249,8 +253,10 @@ describe('DATA', () => {
 		let insertedRows, failedRows;
 		const mixpanel = data.find(d => d.name === 'mixpanel');
 		expect(mixpanel).toBeDefined();
-		expect(mixpanel.result.status).toBe(0);
-		expect(mixpanel.result.error).toBe('$token, missing or empty');
+		expect(mixpanel.result.status).toBe('success');
+		({ insertedRows, failedRows } = mixpanel.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);	
 
 		const bigquery = data.find(d => d.name === 'bigquery');
 		expect(bigquery).toBeDefined();
@@ -325,8 +331,10 @@ describe('DATA', () => {
 		let insertedRows, failedRows;
 		const mixpanel = data.find(d => d.name === 'mixpanel');
 		expect(mixpanel).toBeDefined();
-		expect(mixpanel.result.status).toBe(1);
-		expect(mixpanel.result.error).toBe(null);
+		expect(mixpanel.result.status).toBe('success');
+		({ insertedRows, failedRows } = mixpanel.result);
+		expect(insertedRows).toBe(1);
+		expect(failedRows).toBe(0);	
 
 		const bigquery = data.find(d => d.name === 'bigquery');
 		expect(bigquery).toBeDefined();
@@ -654,8 +662,8 @@ describe('PROXY', () => {
 
 //after all, call drop + prune
 afterAll(async () => {
-	const drop = spawn('npm', ['run', 'drop'], { stdio: 'inherit' });
-	await new Promise(resolve => drop.on('close', resolve));
+	// const drop = spawn('npm', ['run', 'drop'], { stdio: 'inherit' });
+	// await new Promise(resolve => drop.on('close', resolve));
 	const prune = spawn('npm', ['run', 'prune'], { stdio: 'inherit' });
 	await new Promise(resolve => prune.on('close', resolve));
 });
