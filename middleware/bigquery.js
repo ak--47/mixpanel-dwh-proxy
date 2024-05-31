@@ -57,6 +57,7 @@ let areTablesReady;
 async function main(data, type, tableNames) {
 	const startTime = Date.now();
 	const init = await initializeBigQuery(tableNames);
+	if (!init.every(i => i)) throw new Error("Failed to initialize BigQuery middleware.");
 	const { eventTable, userTable, groupTable } = tableNames;
 	// now we know the tables is ready and we can insert data; this runs repeatedly
 	let targetTable;
@@ -130,10 +131,10 @@ async function verifyBigQueryCredentials() {
 	const query = "SELECT 1";
 	try {
 		const [rows] = await client.query(query);
-		log("BigQuery credentials are valid");
+		log("[BIGQUERY] credentials are valid");
 		return true;
 	} catch (error) {
-		log("Error verifying BigQuery credentials:", error);
+		log("[BIGQUERY] Error verifying BigQuery credentials:", error);
 		return error.message;
 	}
 }
@@ -142,15 +143,15 @@ async function verifyOrCreateDataset() {
 	const [datasets] = await client.getDatasets();
 	const datasetExists = datasets.some((dataset) => dataset.id === bigquery_dataset);
 	if (!datasetExists) {
-		log(`Dataset ${bigquery_dataset} does not exist. creating...`);
+		log(`[BIGQUERY] Dataset ${bigquery_dataset} does not exist. creating...`);
 		const [success] = await client.createDataset(bigquery_dataset);
 		const [moreDatasets] = await client.getDatasets();
 		const moreDatasetExists = moreDatasets.some((dataset) => dataset.id === bigquery_dataset);
 		if (!moreDatasetExists) {
-			log(`Failed to create dataset ${bigquery_dataset}`);
+			log(`[BIGQUERY] Failed to create dataset ${bigquery_dataset}`);
 			return false;
 		}
-		log(`Dataset ${bigquery_dataset} created.`);
+		log(`[BIGQUERY] Dataset ${bigquery_dataset} created.`);
 		return true;
 
 
@@ -167,7 +168,7 @@ async function verifyOrCreateTables(tableNames) {
 	for (const [type, table] of tableNames) {
 		const tableExists = tables.some((t) => t.id === table);
 		if (!tableExists) {
-			log(`Table ${table} does not exist. creating...`);
+			log(`[BIGQUERY] Table ${table} does not exist. creating...`);
 			// @ts-ignore
 			const tableSchema = getBigQuerySchema(type);
 
@@ -192,16 +193,16 @@ async function verifyOrCreateTables(tableNames) {
 			const [moreTables] = await client.dataset(bigquery_dataset).getTables();
 			const moreTableExists = moreTables.some((t) => t.id === table);
 			if (!moreTableExists) {
-				log(`Failed to create table ${table}`);
+				log(`[BIGQUERY] Failed to create table ${table}`);
 				results.push(false);
 			} else {
-				log(`Table ${table} created.`);
+				log(`[BIGQUERY] Table ${table} created.`);
 				const isTableReady = await waitForTableToBeReady(newTable);
 				if (isTableReady) results.push(true);
 				else results.push(false);
 			}
 		} else {
-			log(`Table ${table} already exists.`);
+			log(`[BIGQUERY] Table ${table} already exists.`);
 			const isTableReady = await waitForTableToBeReady(client.dataset(bigquery_dataset).table(table));
 			if (isTableReady) results.push(true);
 			else results.push(false);
@@ -212,47 +213,44 @@ async function verifyOrCreateTables(tableNames) {
 }
 
 async function waitForTableToBeReady(table, retries = 20, maxInsertAttempts = 20) {
-	log("Checking if table exits...");
-
+	log("[BIGQUERY] Checking if table exits...");
+	const tableName = table.id;
 	tableExists: for (let i = 0; i < retries; i++) {
 		const [exists] = await table.exists();
 		if (exists) {
-			log(`\tTable is confirmed to exist on attempt ${i + 1}.`);
+			log(`[BIGQUERY] Table is confirmed to exist on attempt ${i + 1}.`);
 			break tableExists;
 		}
 		const sleepTime = u.rand(1000, 5000);
-		log(`sleeping for ${u.prettyTime(sleepTime)}; waiting for table exist; attempt ${i + 1}`);
+		log(`[BIGQUERY] Table sleeping for ${u.prettyTime(sleepTime)}; waiting for table exist; attempt ${i + 1}`);
 		await u.sleep(sleepTime);
 
 		if (i === retries - 1) {
-			log(`Table does not exist after ${retries} attempts.`);
+			log(`[BIGQUERY] Table does not exist after ${retries} attempts.`);
 			return false;
 		}
 	}
 
-	log("\nChecking if table is ready for operations...");
+	log("[BIGQUERY] Checking if table is ready for operations...");
 	let insertAttempt = 0;
 	while (insertAttempt < maxInsertAttempts) {
 		try {
 			// Attempt a dummy insert that SHOULD fail, but not because 404
 			const dummyRecord = { [u.uid()]: u.uid() };
-			await table.insert([dummyRecord]);
-			log("...should never get here...");
+			const dummyInserResult = await table.insert([dummyRecord]);
+			log("[BIGQUERY] ...should never get here...");
 			return true; // If successful, return true immediately
 		} catch (error) {
 			if (error.code === 404) {
 				const sleepTime = u.rand(1000, 5000);
-				log(
-					`\tTable not ready for operations, sleeping ${u.prettyTime(sleepTime)} retrying... attempt #${insertAttempt + 1
-					}`
-				);
+				log(`[BIGQUERY] Table not ready for operations, sleeping ${u.prettyTime(sleepTime)} retrying... attempt #${insertAttempt + 1}`);
 				await u.sleep(sleepTime);
 				insertAttempt++;
 			} else if (error.name === "PartialFailureError") {
-				log("\tTable is ready for operations\n");
+				log("[BIGQUERY] Table is ready for operations");
 				return true;
 			} else {
-				log("should never get here either");
+				log("[BIGQUERY] should never get here either");
 				debugger;
 			}
 		}
@@ -268,7 +266,7 @@ async function waitForTableToBeReady(table, retries = 20, maxInsertAttempts = 20
  * @return {Promise<InsertResult>}
  */
 async function insertData(batch, table, schema) {
-	log("Starting data insertion...\n");
+	log("[BIGQUERY] Starting data insertion...");
 	let result = { status: "born" };
 
 	/** @type {import('@google-cloud/bigquery').InsertRowsOptions} */
@@ -300,7 +298,7 @@ async function insertData(batch, table, schema) {
 				errors: uniqueErrors,
 
 			};
-			log(`Partial failure`);
+			log(`[BIGQUERY] Partial failure`);
 		}
 
 		else {
@@ -311,7 +309,7 @@ async function insertData(batch, table, schema) {
 
 	}
 
-	log("\n\tData insertion complete.\n");
+	log("[BIGQUERY] Data insertion complete.");
 	return { ...result };
 }
 
@@ -337,15 +335,20 @@ function getBigQuerySchema(type) {
  * @param  {TableNames} tableNames
  */
 async function dropTables(tableNames) {
+	log("[BIGQUERY] Dropping all tables...");
 	const [allTables] = await client.dataset(bigquery_dataset).getTables();
+	const droppedTables = [];
 	const targetTables = Object.values(tableNames);
 	// @ts-ignore
 	const tablesToDrop = allTables.filter((table) => targetTables.includes(table.id));
 	const dropPromises = tablesToDrop.map(async (table) => {
-		await table.delete();
+		droppedTables.push(table.id);
+		const [tableDropResult] = await table.delete();
 	});
 	const result = await Promise.all(dropPromises);
-	return result;
+	log(`[BIGQUERY] Dropped ${droppedTables.length} tables: ${droppedTables.join(", ")}`);
+	return { numTablesDropped: droppedTables.length, tablesDropped: droppedTables };
+
 }
 
 main.drop = dropTables;

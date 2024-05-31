@@ -15,20 +15,20 @@ module.exports = function (app, environment = NODE_ENV, URL = BASE_URL) {
 		target: 'https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js',
 		changeOrigin: true,
 		pathRewrite: { '^/lib.min.js': '' },
-		logLevel: environment === "prod" ? "error" : "debug"
+		logLevel: environment === "prod" ? "error" : "silent"
 	}));
 
 	app.use('/lib.js', createProxyMiddleware({
 		target: 'https://cdn.mxpnl.com/libs/mixpanel-2-latest.js',
 		changeOrigin: true,
 		pathRewrite: { '^/lib.js': '' },
-		logLevel: environment === "prod" ? "error" : "debug"
+		logLevel: environment === "prod" ? "error" : "silent"
 	}));
 
 	app.use('/record', createProxyMiddleware({
 		target: URL,
 		changeOrigin: true,
 		pathRewrite: { '^/record': '/record' },
-		logLevel: environment === "prod" ? "error" : "debug",
+		logLevel: environment === "prod" ? "error" : "silent",
 	}));
 };

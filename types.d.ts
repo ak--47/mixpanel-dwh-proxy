@@ -10,9 +10,9 @@ export type Runtimes =
   | "LOCAL"
   | string;
 
-export type Warehouse = "REDSHIFT" | "BIGQUERY" | "SNOWFLAKE";
+export type Warehouse = "REDSHIFT" | "BIGQUERY" | "SNOWFLAKE" | "MIXPANEL";
 export type Lake = "S3" | "GCS" | "AZURE_BLOB";
-export type Destinations = Warehouse | Lake | string;
+export type Targets = Warehouse | Lake | string;
 
 export type Endpoints = "track" | "engage" | "groups";
 export type Entities = "event" | "user" | "group";
@@ -168,7 +168,7 @@ export type InsertResult = {
 };
 
 export type MiddlewareResponse = {
-  name: Destinations;
+  name: Targets;
   result: InsertResult;
 };
 
@@ -177,7 +177,7 @@ type StringOnlyTuple = [string];
 type StringObjectTuple = [string, object];
 
 // TYPES FOR MIDDLEWARE
-export type BigQueryConfig = {
+export type BigQueryVars = {
   bigquery_project: string;
   bigquery_dataset: string;
   bigquery_table: string;
@@ -186,7 +186,7 @@ export type BigQueryConfig = {
   bigquery_service_account_private_key: string;
 };
 
-export type SnowflakeConfig = {
+export type SnowflakeVars = {
   snowflake_account: string;
   snowflake_user: string;
   snowflake_password: string;
@@ -195,24 +195,24 @@ export type SnowflakeConfig = {
   snowflake_warehouse: string;
   snowflake_role: string;
   snowflake_access_url: string;
-  snowflake_stage: string;
-  snowflake_pipe: string;
-  snowflake_private_key: string;
-  snowflake_region: string;
-  snowflake_provider: string;
+  snowflake_stage?: string;
+  snowflake_pipe?: string;
+  snowflake_private_key?: string;
+  snowflake_region?: string;
+  snowflake_provider?: string;
 };
 
-export type RedshiftConfig = {
+export type RedshiftVars = {
   redshift_workgroup: string;
   redshift_database: string;
   redshift_region: string;
   redshift_access_key_id: string;
   redshift_secret_access_key: string;
   redshift_schema_name: string;
-  redshift_session_token: string;
+  redshift_session_token?: string;
 };
 
-export type GCSConfig = {
+export type GCSVars = {
   gcs_project: string;
   gcs_bucket: string;
   gcs_service_account: string;
@@ -220,25 +220,32 @@ export type GCSConfig = {
   gcs_keyfile: string;
 };
 
-export type S3Config = {
+export type S3Vars = {
   s3_bucket: string;
   s3_region: string;
   s3_access_key_id: string;
   s3_secret_access_key: string;
 };
 
-export type AzureConfig = {
+export type AzureVars = {
   azure_account: string;
-  azure_account_key: string;
+  azure_key: string;
   azure_container: string;
+  azure_connection_string?: string;
 };
 
-export type otherOptions = {
-  WAREHOUSES: string;
-  LAKES: string;
+export type MixpanelVars = {
+	mixpanel_token?: string;
+	mixpanel_region?: string;
+}
+
+export type otherVars = {
+  DESTINATION: String;
   EVENTS_TABLE_NAME: string;
   USERS_TABLE_NAME: string;
   GROUPS_TABLE_NAME: string;
+  BATCH_SIZE: number;
+  MAX_RETRIES: number;
 };
 
-export type AllConfigs = BigQueryConfig & SnowflakeConfig & RedshiftConfig & GCSConfig & otherOptions;
+export type EnvVars = BigQueryVars & SnowflakeVars & RedshiftVars & GCSVars & otherVars;

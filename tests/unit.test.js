@@ -59,7 +59,7 @@ describe('VALIDATION', () => {
 
 	test('bigquery: project required', () => {
 		process.env = {
-			WAREHOUSES: 'BIGQUERY'
+			DESTINATIONS: 'BIGQUERY'
 		};
 
 		expect(() => validate()).toThrow('bigquery_project is required');
@@ -67,7 +67,7 @@ describe('VALIDATION', () => {
 
 	test('snowflake: account required', () => {
 		process.env = {
-			WAREHOUSES: 'SNOWFLAKE'
+			DESTINATIONS: 'SNOWFLAKE'
 		};
 
 		expect(() => validate()).toThrow('snowflake_account is required');
@@ -75,7 +75,7 @@ describe('VALIDATION', () => {
 
 	test('redshift: workgroup required', () => {
 		process.env = {
-			WAREHOUSES: 'REDSHIFT'
+			DESTINATIONS: 'REDSHIFT'
 		};
 
 		expect(() => validate()).toThrow('redshift_workgroup is required');
@@ -83,7 +83,7 @@ describe('VALIDATION', () => {
 
 	test('gcs: project required', () => {
 		process.env = {
-			LAKES: 'GCS'
+			DESTINATIONS: 'GCS'
 		};
 
 		expect(() => validate()).toThrow('gcs_project is required');
@@ -91,7 +91,7 @@ describe('VALIDATION', () => {
 
 	test('s3: bucket required', () => {
 		process.env = {
-			LAKES: 'S3'
+			DESTINATIONS: 'S3'
 		};
 
 		expect(() => validate()).toThrow('s3_bucket is required');
@@ -99,7 +99,7 @@ describe('VALIDATION', () => {
 
 	test('azure: account required', () => {
 		process.env = {
-			LAKES: 'AZURE'
+			DESTINATIONS: 'AZURE'
 		};
 
 		expect(() => validate()).toThrow('azure_account is required');
@@ -127,7 +127,7 @@ describe('VALIDATION', () => {
 
 	test('mixpanel: token optional', () => {
 		process.env = {
-			WAREHOUSES: 'MIXPANEL'
+			DESTINATIONS: 'MIXPANEL'
 		};
 
 		expect(() => validate()).not.toThrow();
@@ -156,8 +156,7 @@ describe('VALIDATION', () => {
 
 	test('multiple destinations', () => {
 		process.env = {
-			WAREHOUSES: 'BIGQUERY, SNOWFLAKE',
-			LAKES: 'GCS, S3',
+			DESTINATIONS: 'BIGQUERY, SNOWFLAKE, GCS, S3',
 			bigquery_project: 'foo',
 			snowflake_account: 'bar',
 			gcs_project: 'baz',
@@ -182,17 +181,16 @@ describe('VALIDATION', () => {
 		};
 
 		const params = validate();
+		const expected = ['BIGQUERY', 'SNOWFLAKE', 'GCS', 'S3']
 
-		expect(params.WAREHOUSES).toBe('BIGQUERY, SNOWFLAKE');
-		expect(params.LAKES).toBe('GCS, S3');
-		expect(process.env.warehouses).toBe('BIGQUERY, SNOWFLAKE');
-		expect(process.env.lakes).toBe('GCS, S3');
+		expect(params.DESTINATIONS).toBe('BIGQUERY, SNOWFLAKE, GCS, S3');
+		expect(params.TARGETS).toEqual(expected);
 
 	});
 
 	test('missing env vars', () => {
 		process.env = {
-			WAREHOUSES: 'BIGQUERY, SNOWFLAKE, REDSHIFT'
+			DESTINATIONS: 'BIGQUERY, SNOWFLAKE, REDSHIFT'
 		};
 
 		expect(() => validate()).toThrow('bigquery_project is required');
@@ -201,7 +199,7 @@ describe('VALIDATION', () => {
 
 	test('snowflake: pipe requires stage', () => {
 		process.env = {
-			WAREHOUSES: 'SNOWFLAKE',
+			DESTINATIONS: 'SNOWFLAKE',
 			snowflake_pipe: 'pipe',
 			snowflake_user: 'user',
 			snowflake_account: 'account',
@@ -218,7 +216,7 @@ describe('VALIDATION', () => {
 
 	test('mixpanel: no required vars', () => {
 		process.env = {
-			WAREHOUSES: 'MIXPANEL'
+			DESTINATIONS: 'MIXPANEL'
 		};
 
 		expect(() => validate()).not.toThrow();
@@ -228,14 +226,13 @@ describe('VALIDATION', () => {
 
 	test('handle empty case', () => {
 		process.env = {
-			WAREHOUSES: '',
-			LAKES: ''
+			DESTINATIONS: '',		
 		};
 
 		const params = validate();
 
-		expect(params.WAREHOUSES).toBe('MIXPANEL');
-		expect(params.LAKES).toBe('');
+		expect(params.TARGETS).toStrictEqual(['MIXPANEL']);
+
 	});
 
 

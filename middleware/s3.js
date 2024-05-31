@@ -53,6 +53,7 @@ let canWriteToBucket;
 async function main(data, type, tableNames) {
 	const startTime = Date.now();
 	const init = await initializeS3(tableNames);
+	if (!init.every(i => i)) throw new Error("Failed to initialize S3 middleware.");
 	const { eventTable, userTable, groupTable } = tableNames;
 
 	let targetPrefix;
@@ -101,11 +102,11 @@ async function initializeS3(tableNames) {
 		if (!canWriteToBucket) throw new Error("Could not verify read/write bucket permissions.");
 	}
 
-	return [isClientReady];
+	return [isClientReady, isBucketReady, canWriteToBucket];
 }
 
 async function verifyS3Credentials() {
-	log("Verifying S3 credentials...");
+	log("[S3] Verifying S3 credentials...");
 	s3client = new S3Client({
 		region: s3_region,
 		credentials: {
@@ -116,28 +117,28 @@ async function verifyS3Credentials() {
 
 	try {
 		const listObjectResult = await s3client.send(new ListObjectsV2Command({ Bucket: s3_bucket }));
-		log("S3 credentials verified.");
+		log("[S3] credentials verified.");
 		return true;
 	} catch (error) {
-		log("Error verifying S3 credentials:", error);
+		log("[S3] Error verifying S3 credentials:", error);
 		return error.message;
 	}
 }
 
 
 async function verifyOrCreateBucket() {
-	log("Verifying or creating S3 bucket...");
+	log("[S3] Verifying or creating S3 bucket...");
 
 	// Check if the bucket exists
 	try {
 		const checkForBucket = await s3client.send(new HeadBucketCommand({ Bucket: s3_bucket }));
-		log(`Bucket ${s3_bucket} already exists.`);
+		log(`[S3] Bucket ${s3_bucket} already exists.`);
 		return true;
 	} catch (error) {
 		if (error.name === 'NotFound') {
-			log(`Bucket ${s3_bucket} does not exist. Creating...`);
+			log(`[S3] Bucket ${s3_bucket} does not exist. Creating...`);
 		} else {
-			log(`Error checking bucket existence: ${error.message}`);
+			log(`[S3] Error checking bucket existence: ${error.message}`);
 			return false;
 		}
 	}
@@ -146,10 +147,10 @@ async function verifyOrCreateBucket() {
 	try {
 		const createBucketCommand = new CreateBucketCommand({ Bucket: s3_bucket });
 		const bucketCreateCommand = await s3client.send(createBucketCommand);
-		log(`Bucket ${s3_bucket} created.`);
+		log(`[S3] Bucket ${s3_bucket} created.`);
 		return true;
 	} catch (error) {
-		log(`Failed to create bucket ${s3_bucket}: ${error.message}`);
+		log(`[S3] Failed to create bucket ${s3_bucket}: ${error.message}`);
 		return false;
 	}
 }
@@ -160,70 +161,71 @@ async function verifyOrCreateBucket() {
  * everything gets deleted at the end
  */
 async function verifyReadAndWritePermissions() {
-	log("Verifying read/write permissions...");
-	const dummyFileName = "dummy.txt";
-	const dummyDownloadFileName = "dummy-download.txt";
+	log("[S3] Verifying read/write permissions...");
+	const dummyFileName = "dummy-s3.txt";
+	const dummyDownloadFileName = "dummy-s3-download.txt";
 	const FILE_PATH = path.resolve(TEMP_DIR, dummyFileName);
 	const FILE_PATH_DOWNLOAD = path.resolve(TEMP_DIR, dummyDownloadFileName);
 	const localFileWriteResult = await touch(FILE_PATH, 'hello!');
 
 	if (!localFileWriteResult) {
-		log("Failed to write dummy file to local disk.");
+		log("[S3] Failed to write dummy file to local disk.");
 		return false;
 	}
 
 	try {
 		// Upload to S3
-		log("Uploading dummy file to bucket...");
+		log("[S3] Uploading dummy file to bucket...");
 		const dummyUpload = await s3client.send(new PutObjectCommand({
 			Bucket: s3_bucket,
 			Key: dummyFileName,
 			Body: await load(FILE_PATH)
 		}));
-		log("Upload successful.");
+		log("[S3] Upload successful.");
 
 		// Download from S3
-		log("Downloading dummy file from bucket...");
+		log("[S3] Downloading dummy file from bucket...");
 		const data = await s3client.send(new GetObjectCommand({
 			Bucket: s3_bucket,
 			Key: dummyFileName
 		}));
+		// @ts-ignore
 		const bodyContents = await streamToString(data.Body);
 		const createDownloadResult = await touch(FILE_PATH_DOWNLOAD, bodyContents);
-		log("Download successful.");
+		log("[S3] Download successful.");
 
 		// Verify contents
-		log("Verifying downloaded file contents...");
+		log("[S3] Verifying downloaded file contents...");
 		const localFileContents = await load(FILE_PATH);
 		const downloadedContents = await load(FILE_PATH_DOWNLOAD);
 		if (downloadedContents !== localFileContents) {
-			log("Downloaded file contents do not match local file contents.");
+			log("[S3] Downloaded file contents do not match local file contents.");
 			return false;
 		}
-		log("Downloaded file contents match local file contents.");
+		log("[S3] Downloaded file contents match local file contents.");
 
 		// Delete from S3
-		log("Deleting dummy file from bucket...");
+		log("[S3] Deleting dummy file from bucket...");
 		const deleteResult = await s3client.send(new DeleteObjectsCommand({
 			Bucket: s3_bucket,
 			Delete: {
 				Objects: [{ Key: dummyFileName }]
 			}
 		}));
-		log("Delete successful.");
+		log("[S3] Delete successful.");
 
 		// Delete local files
-		log("Deleting local files...");
+		log("[S3] Deleting local files...");
 		const localDeleteResult = await rm(FILE_PATH);
 		const localDownloadDeleteResult = await rm(FILE_PATH_DOWNLOAD);
-		log("Local files deleted.");
+		log("[S3] Local files deleted.");
 
 	} catch (error) {
-		log("Error verifying read/write permissions:", error);
+		log("[S3] Error verifying read/write permissions:", error);
 		return false;
 	}
 
-	log("Read/write permissions verified.");
+	log("[S3] Read/write permissions verified.");
 	return true;
 }
 
@@ -234,7 +236,7 @@ async function verifyReadAndWritePermissions() {
  * @return {Promise<InsertResult>}
  */
 async function insertData(batch, prefix) {
-	log("Starting data upload...\n");
+	log("[S3] Starting data upload...");
 	if (!prefix) throw new Error("Prefix name not provided.");
 	if (prefix?.endsWith("/")) prefix = prefix.slice(0, -1);
 	let result = { status: "born" };
@@ -246,17 +248,15 @@ async function insertData(batch, prefix) {
 		const insertResult = await s3client.send(new PutObjectCommand({
 			Bucket: s3_bucket,
 			Key: fileName,
-			Body: dataToUpload,
-
-
+			Body: dataToUpload
 		}));
 		result = { status: "success", insertedRows: batch.length, failedRows: 0 };
 	} catch (error) {
-		log(`Error uploading data to S3: ${error.message}`, error);
+		log(`[S3] Error uploading data to S3: ${error.message}`, error);
 		throw error;
 	}
 
-	log("\n\tData insertion complete.\n");
+	log("[S3] Data insertion complete.");
 	return result;
 }
 
@@ -280,12 +280,16 @@ async function deleteAllFiles(tableNames) {
 				Objects: filesToDelete?.map(f => ({ Key: f.Key }))
 			}
 		};
-		await s3client.send(new DeleteObjectsCommand(deleteParams));
-		log(`Deleted ${filesToDelete?.length || 0} files from bucket ${s3_bucket}.`);
+		if (!filesToDelete || !filesToDelete?.length) { return { numFilesDeleted: 0 }; }
+		const deleteFilesResult = await s3client.send(new DeleteObjectsCommand(deleteParams));
+		log(`[S3] Deleted ${filesToDelete?.length || 0} files from bucket ${s3_bucket}.`);
+		return { numFilesDeleted: filesToDelete?.length || 0 };
 	} catch (error) {
-		log(`Error deleting files from S3: ${error.message}`, error);
+		log(`[S3] Error deleting files from S3: ${error.message}`, error);
 		throw error;
 	}
+
+
 }
 
 /**
@@ -296,8 +300,12 @@ async function deleteAllFiles(tableNames) {
 async function streamToString(stream) {
 	return new Promise((resolve, reject) => {
 		const chunks = [];
+
+		// @ts-ignore
 		stream.on("data", (chunk) => chunks.push(chunk));
+		// @ts-ignore
 		stream.on("error", reject);
+		// @ts-ignore
 		stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
 	});
 }

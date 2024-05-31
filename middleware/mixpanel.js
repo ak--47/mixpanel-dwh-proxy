@@ -3,7 +3,7 @@ const fetch = require('fetch-retry')(global.fetch);
 const log = require('../components/logger');
 
 const NODE_ENV = process.env.NODE_ENV || 'prod';
-const REGION = process.env.REGION || 'US';
+const REGION = process.env.MIXPANEL_REGION || 'US';
 const BASE_URL = `https://api${REGION?.toUpperCase() === "EU" ? '-eu' : ''}.mixpanel.com`;
 if (!BASE_URL) throw new Error('BASE_URL is required; mixpanel middleware is not ready');
 if (NODE_ENV === 'test') {
@@ -28,7 +28,7 @@ if (NODE_ENV === 'test') {
 async function main(data, type,) {
 	const start = Date.now();
 	const url = `${BASE_URL}/${type}?verbose=1`;
-	log(`\nrequest to ${shortUrl(url)} with data:\n${pp(data)} ${sep()}`);
+	log(`[MIXPANEL] request to ${shortUrl(url)}`);
 	try {
 		const request = await fetch(url, {
 			method: 'POST',
@@ -42,7 +42,7 @@ async function main(data, type,) {
 		const response = await request.json();
 		const duration = Date.now() - start;
 		response.duration = duration;
-		log(`got ${status} ${statusText} from ${shortUrl(url)}:\n${pp(response)} ${sep()}`);
+		log(`[MIXPANEL] got ${status} ${statusText} from ${shortUrl(url)}`);
 		const result = { status: "success", duration, failedRows: 0, insertedRows: data.length };
 		if (response.error) {
 			result.status = "error";
@@ -52,7 +52,7 @@ async function main(data, type,) {
 	}
 	catch (error) {
 		const duration = Date.now() - start;
-		console.error(`error in makeRequest: ${error}`);
+		log(`[MIXPANEL] error in makeRequest: ${error}`, error);
 		return { status: "error", duration, errorMessage: error.message };
 	}
 }
@@ -61,23 +61,15 @@ async function main(data, type,) {
 
 
 // helpers
-function pp(obj) {
-	return JSON.stringify(obj, null, 2);
-}
-
-function sep() {
-	return `\n--------\n`;
-}
-
 function shortUrl(url) {
 	return new URL(url).pathname;
 }
 
 main.init = () => {
-	log(`mixpanel middleware initialized`);
+	log(`[MIXPANEL] middleware initialized in ${REGION} region with base URL ${BASE_URL}`);
 };
 main.drop = () => {
-	log(`mixpanel tables cannot be dropped...yet`);
+	log(`[MIXPANEL] tables cannot be dropped...0_o`);
 	return "nothing to drop";
 };
 module.exports = main;

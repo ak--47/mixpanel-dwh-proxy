@@ -8,7 +8,7 @@ const { clone } = require('ak-tools');
 const profileOps = ['$set', '$set_once', '$unset', '$delete', '$append', '$add', '$union', '$delete', '$increment'];
 
 /** @typedef {import('../types').Runtimes} Runtimes */
-/** @typedef {import('../types').Destinations} Destinations */
+/** @typedef {import('../types').Targets} Destinations */
 /** @typedef {import('../types').Warehouse} Warehouse */
 /** @typedef {import('../types').Lake} Lake */
 /** @typedef {import('../types').Endpoints} Endpoints */
@@ -158,7 +158,7 @@ function flattenAndRenameForWarehouse(data) {
 					//convert time to ISO string... time might be sec or ms
 					else if (prop === 'time') {
 						const timeValue = record.properties.time;
-						if (timeValue.toString().length === 13) {
+						if (timeValue.toString().length === 13 && !timeValue?.toString()?.includes('.')) {
 							// Unix timestamp in milliseconds
 							record.event_time = dayjs(timeValue).toISOString();
 						} else {

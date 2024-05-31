@@ -58,6 +58,7 @@ let canWriteToBucket;
 async function main(data, type, tableNames) {
 	const startTime = Date.now();
 	const init = await initializeGoogleStorage(tableNames);
+	if (!init.every(i => i)) throw new Error("Failed to initialize Google Cloud Storage middleware.");
 	const { eventTable, userTable, groupTable } = tableNames;
 	// now we know the tables is ready and we can insert data; this runs repeatedly
 	let targetPrefix;
@@ -137,10 +138,10 @@ async function verifyGcsCredentials() {
 
 	try {
 		const [serviceAccount] = await client.getServiceAccount({});
-		log("GCS credentials verified.");
+		log("[GCS] credentials verified.");
 		return true;
 	} catch (error) {
-		log("Error verifying BigQuery credentials:", error);
+		log("[GCS] Error verifying BigQuery credentials:", error);
 		return error.message;
 	}
 }
@@ -172,15 +173,15 @@ async function verifyOrCreateBucket() {
  * everything gets deleted at the end
  */
 async function verifyReadAndWritePermissions() {
-	log("Verifying read/write permissions...");
-	const dummyFileName = "dummy.txt";
-	const dummyDownloadFileName = "dummy-download.txt";
+	log("[GCS] Verifying read/write permissions...");
+	const dummyFileName = "dummy-gcs.txt";
+	const dummyDownloadFileName = "dummy-download-gcs.txt";
 	const FILE_PATH = path.resolve(TEMP_DIR, dummyFileName);
 	const FILE_PATH_DOWNLOAD = path.resolve(TEMP_DIR, dummyDownloadFileName);
 	const localFileWriteResult = await touch(FILE_PATH, 'hello!');
 
 	if (!localFileWriteResult) {
-		log("Failed to write dummy file to local disk.");
+		log("[GCS] Failed to write dummy file to local disk.");
 		return false;
 	}
 	let uploadResult;
@@ -190,66 +191,66 @@ async function verifyReadAndWritePermissions() {
 
 	//upload to cloud storage
 	try {
-		log("Uploading dummy file to bucket...");
+		log("[GCS] Uploading dummy file to bucket...");
 		([uploadResult] = await client.bucket(gcs_bucket).upload(FILE_PATH));
-		log("Upload successful.");
+		log("[GCS] Upload successful.");
 	}
 	catch (error) {
-		log("Error uploading dummy file to bucket:", error);
+		log("[GCS] Error uploading dummy file to bucket:", error);
 		return false;
 	}
 
 	//download from cloud storage
 	try {
-		log("Downloading dummy file from bucket...");
+		log("[GCS] Downloading dummy file from bucket...");
 		([downloadResult] = await client.bucket(gcs_bucket).file(dummyFileName).download({ destination: FILE_PATH_DOWNLOAD }));
-		log("Download successful.");
+		log("[GCS] Download successful.");
 	}
 	catch (error) {
-		log("Error downloading dummy file from bucket:", error);
+		log("[GCS] Error downloading dummy file from bucket:", error);
 		return false;
 	}
 
 	//verify contents
 	try {
-		log("Verifying downloaded file contents...");
+		log("[GCS] Verifying downloaded file contents...");
 		const localFileContents = await load(FILE_PATH);
 		downloadedContents = await load(FILE_PATH_DOWNLOAD);
 		if (downloadedContents !== localFileContents) {
-			log("Downloaded file contents do not match local file contents.");
+			log("[GCS] Downloaded file contents do not match local file contents.");
 			return false;
 		}
-		log("Downloaded file contents match local file contents.");
+		log("[GCS] Downloaded file contents match local file contents.");
 	}
 	catch (error) {
-		log("Error reading downloaded file contents:", error);
+		log("[GCS] Error reading downloaded file contents:", error);
 		return false;
 	}
 
 	//delete from cloud storage
 	try {
-		log("Deleting dummy file from bucket...");
+		log("[GCS] Deleting dummy file from bucket...");
 		([deleteResult] = await client.bucket(gcs_bucket).file(dummyFileName).delete());
-		log("Delete successful.");
+		log("[GCS] Delete successful.");
 	}
 	catch (error) {
-		log("Error deleting dummy file from bucket:", error);
+		log("[GCS] Error deleting dummy file from bucket:", error);
 		return false;
 	}
 
 	//delete local file
 	try {
-		log("Deleting local files...");
+		log("[GCS] Deleting local files...");
 		const locallyMadeDeleteResult = await rm(FILE_PATH);
 		const locallyDownloadedDeleteResult = await rm(FILE_PATH_DOWNLOAD);
-		log("Local files deleted.");
+		log("[GCS] Local files deleted.");
 	}
 	catch (error) {
-		log("Error deleting local files:", error);
+		log("[GCS] Error deleting local files:", error);
 		return false;
 	}
 
-	log("Read/write permissions verified.");
+	log("[GCS] Read/write permissions verified.");
 	return true;
 
 }
@@ -262,7 +263,7 @@ async function verifyReadAndWritePermissions() {
  * @return {Promise<InsertResult>}
  */
 async function insertData(batch, prefix) {
-	log("Starting data upload...\n");
+	log("[GCS] Starting data upload...");
 	if (!prefix) throw new Error("prefix name not provided.");
 	if (prefix?.endsWith("/")) prefix = prefix.slice(0, -1);
 	let result = { status: "born", dest: "gcs" };
@@ -278,19 +279,12 @@ async function insertData(batch, prefix) {
 		result = { status: "success", insertedRows: batch.length, failedRows: 0, dest: "gcs" };
 	} catch (error) {
 		debugger;
-		if (error.name === "") {
-			log(`named error`);
-		}
-
-		else {
-			throw error;
-		}
-
-
+		log(`[GCS] Error uploading data to Google Cloud Storage: ${error.message}`, error);
+		throw error;
 
 	}
 
-	log("\n\tData insertion complete.\n");
+	log("[GCS] Data insertion complete.");
 	return { ...result };
 }
 
@@ -300,19 +294,20 @@ async function insertData(batch, prefix) {
  * @param  {TableNames} tableNames
  */
 async function deleteAllFiles(tableNames) {
+	log("[GCS] Deleting all files from bucket...");
 	const { eventTable, userTable, groupTable } = tableNames;
 	const tables = [eventTable, userTable, groupTable];
 	const [buckets] = await client.getBuckets();
 	const bucket = buckets.find((b) => b.name === gcs_bucket);
 	if (!bucket) {
-		log(`Bucket ${gcs_bucket} not found.`);
+		log(`[GCS] Bucket ${gcs_bucket} not found.`);
 		return;
 	}
 	const [files] = await bucket.getFiles();
 	const filesToDelete = files.filter((f) => tables.some((t) => f.name.includes(t)));
 	const deletePromises = filesToDelete.map((f) => f.delete());
 	const deleteResults = await Promise.all(deletePromises);
-	log(`Deleted ${deleteResults?.length} files from bucket ${gcs_bucket}.`);
+	log(`[GCS] Deleted ${deleteResults?.length} files from bucket ${gcs_bucket}.`);
 	return { numFilesDeleted: deleteResults?.length };
 }
 

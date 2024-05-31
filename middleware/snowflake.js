@@ -87,6 +87,7 @@ let transport = 'none';
 async function main(data, type, tableNames) {
 	const startTime = Date.now();
 	const init = await initializeSnowflake(tableNames);
+	if (!init.every(i => i)) throw new Error("Failed to initialize Snowflake middleware.");
 	const { eventTable, userTable, groupTable } = tableNames;
 	// now we know the tables is ready and we can insert data; this runs repeatedly
 	let targetTable;
@@ -152,13 +153,13 @@ async function initializeSnowflake(tableNames) {
 		if (!isConnectionReady) throw new Error("snowflake credentials verification failed.");
 		isConnectionReady = await connection.isValidAsync();
 		if (!isConnectionReady) throw new Error("snowflake connection is in an invalid state.");
-		log("Snowflake connection is ready.");
+		log("[SNOWFLAKE] connection is ready.");
 	}
 
 	if (!isDatasetReady) {
 		isDatasetReady = await verifyOrCreateDatabase();
 		if (!isDatasetReady) throw new Error("Dataset verification or creation failed.");
-		log("Snowflake dataset is ready.");
+		log("[SNOWFLAKE] dataset is ready.");
 	}
 
 	if (!areTablesReady) {
@@ -166,7 +167,7 @@ async function initializeSnowflake(tableNames) {
 		areTablesReady = tableCheckResults.every(result => result);
 		if (!areTablesReady) throw new Error("Table verification or creation failed.");
 		transport = "insert";
-		log("using INSERT + BIND transport method.");
+		log("[SNOWFLAKE] using INSERT + BIND transport method.");
 	}
 
 	const result = [isConnectionReady, isDatasetReady, areTablesReady];
@@ -178,7 +179,7 @@ async function initializeSnowflake(tableNames) {
 			isStageReady = stageCheckResults;
 			result.push(isStageReady);
 			transport = "copy";
-			log("using COPY INTO transport method.");
+			log("[SNOWFLAKE] using COPY INTO transport method.");
 		}
 	}
 
@@ -189,7 +190,7 @@ async function initializeSnowflake(tableNames) {
 			isPipeReady = pipeCheckResults;
 			result.push(isPipeReady);
 			transport = "pipe";
-			log("using SNOWPIPE transport method.");
+			log("[SNOWFLAKE] using SNOWPIPE transport method.");
 		}
 
 		if (!isSnowPipeReady) {
@@ -207,17 +208,17 @@ async function initializeSnowflake(tableNames) {
 //todo auth is bad here... needs priv key
 async function createSnowpipeConnection() {
 	try {
-		log("Creating Snowpipe connection...");
+		log("[SNOWFLAKE] Creating Snowpipe connection...");
 		const args = [snowflake_user, snowflake_private_key, snowflake_account];
 		if (snowflake_region) args.push(snowflake_region);
 		if (snowflake_provider) args.push(snowflake_provider);
 		// @ts-ignore
 		snowpipeAPI = await createSnowpipeAPI(...args);
-		log("Snowpipe connection created.");
+		log("[SNOWFLAKE] Snowpipe connection created.");
 		return true;
 	}
 	catch (error) {
-		log("Failed to create Snowpipe connection:", error);
+		log("[SNOWFLAKE] Failed to create Snowpipe connection:", error);
 		dropTables;
 		return false;
 	}
@@ -233,7 +234,7 @@ async function createSnowflakeConnection() {
 	if (!snowflake_warehouse) throw new Error('snowflake_warehouse is required');
 	if (!snowflake_role) throw new Error('snowflake_role is required');
 	snowflake.configure({ keepAlive: true, logLevel: 'WARN' });
-	log('Attempting to connect to Snowflake...');
+	log('[SNOWFLAKE] Attempting to connect...');
 
 	return new Promise((resolve, reject) => {
 		const attemptConnect = snowflake.createConnection({
@@ -249,11 +250,11 @@ async function createSnowflakeConnection() {
 
 		attemptConnect.connect((err, conn) => {
 			if (err) {
-				log('Failed to connect to Snowflake:', err);
+				log('[SNOWFLAKE] Failed to connect:', err);
 				debugger;
 				resolve(false);
 			} else {
-				log('Successfully connected to Snowflake');
+				log('[SNOWFLAKE] Successfully connected');
 				connection = conn;
 				resolve(true);
 			}
@@ -268,21 +269,21 @@ async function verifyOrCreateDatabase(databaseName = snowflake_database, schemaN
 
 	let databaseExists = false;
 	// @ts-ignore
-	if (checkResult?.message?.includes(`Database '${snowflake_database}' does not exist or not authorized.`)) databaseExists = false;
+	if (checkResult?.message?.includes(`Database '${snowflake_database?.toUpperCase()}' does not exist or not authorized.`)) databaseExists = false;
 	else if (checkResult?.[0]?.COUNT > 0) databaseExists = true;
 	else debugger;
 
 
 	if (!databaseExists) {
-		log(`Database ${databaseName} does not exist. Creating...`);
+		log(`[SNOWFLAKE] Database ${databaseName} does not exist. Creating...`);
 
 		const createDatabaseQuery = `CREATE OR REPLACE DATABASE ${databaseName}`;
 		const databaseCreationResult = await executeSQL(createDatabaseQuery);
 
-		log(`Database ${databaseName} created.`);
+		log(`[SNOWFLAKE] Database ${databaseName} created.`);
 
 	} else {
-		log(`Database ${databaseName} already exists.`);
+		log(`[SNOWFLAKE] Database ${databaseName} already exists.`);
 	}
 
 	// Check if the schema exists
@@ -292,21 +293,21 @@ async function verifyOrCreateDatabase(databaseName = snowflake_database, schemaN
 	const schemaExists = checkSchemaResult?.some(schema => schema.name === schemaName.toUpperCase());
 
 	if (!schemaExists) {
-		log(`Schema ${schemaName} does not exist in database ${databaseName}. Creating...`);
+		log(`[SNOWFLAKE] Schema ${schemaName} does not exist in database ${databaseName}. Creating...`);
 
 		const createSchemaQuery = `CREATE SCHEMA ${databaseName}.${schemaName}`;
 		const schemaCreateResult = await executeSQL(createSchemaQuery);
 
-		log(`Schema ${schemaName} created in database ${databaseName}.`);
+		log(`[SNOWFLAKE] Schema ${schemaName} created in database ${databaseName}.`);
 	} else {
-		log(`Schema ${schemaName} already exists in database ${databaseName}.`);
+		log(`[SNOWFLAKE] Schema ${schemaName} already exists in database ${databaseName}.`);
 	}
 
 	// Set the current schema
 	const useSchemaQuery = `USE SCHEMA ${databaseName}.${schemaName}`;
 	const useSchemaResult = await executeSQL(useSchemaQuery);
 
-	log(`Using schema ${schemaName} in database ${databaseName}.`);
+	log(`[SNOWFLAKE] Using schema ${schemaName} in database ${databaseName}.`);
 
 	return true;
 }
@@ -317,20 +318,20 @@ async function verifyOrCreateTables(tableNames) {
 	for (const [type, table] of tableNames) {
 		const tableExists = await checkIfTableExists(table);
 		if (!tableExists) {
-			log(`Table ${table} does not exist. Creating...`);
+			log(`[SNOWFLAKE] Table ${table} does not exist. Creating...`);
 			const tableSchema = getSnowflakeSchema(type);
 			const sqlSchema = tableSchema.map(f => `${f.name} ${f.type}`).join(", ");
 			const tableCreateResult = await createTable(table, sqlSchema);
 			const tableReady = await waitForTableToBeReady(table);
 			if (tableReady) {
 				results.push(true);
-				log(`Table ${table} created and ready.`);
+				log(`[SNOWFLAKE] Table ${table} created and ready.`);
 			} else {
 				results.push(false);
-				log(`Failed to create table ${table}`);
+				log(`[SNOWFLAKE] Failed to create table ${table}`);
 			}
 		} else {
-			log(`Table ${table} already exists.`);
+			log(`[SNOWFLAKE] Table ${table} already exists.`);
 			const tableReady = await waitForTableToBeReady(table);
 			if (tableReady) {
 				results.push(true);
@@ -348,19 +349,19 @@ async function verifyOrCreateStage() {
 	const result = await executeSQL(checkStageQuery);
 	if (!Array.isArray(result)) throw new Error("Failed to check stage existence");
 	if (!result || result.length === 0) {
-		log(`Stage ${snowflake_stage} does not exist. Creating...`);
+		log(`[SNOWFLAKE] Stage ${snowflake_stage} does not exist. Creating...`);
 		const createStageQuery = `CREATE OR REPLACE STAGE ${snowflake_stage} FILE_FORMAT = (TYPE = 'JSON') DIRECTORY = (ENABLE = TRUE)`;
 		const stageCreatedResult = await executeSQL(createStageQuery);
-		log(`Stage ${snowflake_stage} created.`);
+		log(`[SNOWFLAKE] Stage ${snowflake_stage} created.`);
 
 		// Grant necessary permissions
 		const grantReadQuery = `GRANT READ ON STAGE ${snowflake_stage} TO ROLE ${snowflake_role}`;
 		const grantWriteQuery = `GRANT WRITE ON STAGE ${snowflake_stage} TO ROLE ${snowflake_role}`;
 		const readPermsResult = await executeSQL(grantReadQuery);
 		const writePermsResult = await executeSQL(grantWriteQuery);
-		log(`Granted READ and WRITE on stage ${snowflake_stage} to role ${snowflake_role}`);
+		log(`[SNOWFLAKE] Granted READ and WRITE on stage ${snowflake_stage} to role ${snowflake_role}`);
 	} else {
-		log(`Stage ${snowflake_stage} already exists.`);
+		log(`[SNOWFLAKE] Stage ${snowflake_stage} already exists.`);
 	}
 	return true;
 }
@@ -373,7 +374,7 @@ async function verifyOrCreatePipe(tableNames) {
 		const checkPipeQuery = `SHOW PIPES LIKE '${snowflake_pipe}_${table}'`;
 		const result = await executeSQL(checkPipeQuery);
 		if (!Array.isArray(result) || result.length === 0) {
-			log(`Pipe ${snowflake_pipe}_${table} does not exist. Creating...`);
+			log(`[SNOWFLAKE] Pipe ${snowflake_pipe}_${table} does not exist. Creating...`);
 
 			const schema = getSnowflakeSchema(type.split('Table').shift());
 			const columnMappings = schema
@@ -391,9 +392,9 @@ async function verifyOrCreatePipe(tableNames) {
 				ON_ERROR = 'CONTINUE';
 			`;
 			const createPipeResult = await executeSQL(createPipeQuery);
-			log(`Pipe ${snowflake_pipe}_${table} created.`);
+			log(`[SNOWFLAKE] Pipe ${snowflake_pipe}_${table} created.`);
 		} else {
-			log(`Pipe ${snowflake_pipe}_${table} already exists.`);
+			log(`[SNOWFLAKE] Pipe ${snowflake_pipe}_${table} already exists.`);
 		}
 	}
 	return true;
@@ -408,7 +409,7 @@ async function verifyOrCreatePipe(tableNames) {
  * @return {Promise<InsertResult>}
  */
 async function insertData(batch, table, schema) {
-	log("Append rows via INSERT...\n");
+	log("[SNOWFLAKE] Append rows via INSERT...");
 	let result = { status: "born", dest: "snowflake" };
 	// Insert data
 	const [insertSQL, hasVariant] = prepareInsertSQL(schema, table);
@@ -424,7 +425,7 @@ async function insertData(batch, table, schema) {
 	}
 	const start = Date.now();
 	try {
-		log(`Inserting ${batch.length} rows into ${table}...`);
+		log(`[SNOWFLAKE] Inserting ${batch.length} rows into ${table}...`);
 		const task = await executeSQL(insertSQL, data);
 		const duration = Date.now() - start;
 		const insertedRows = task?.[0]?.['number of rows inserted'] || 0;
@@ -434,10 +435,10 @@ async function insertData(batch, table, schema) {
 	} catch (error) {
 		const duration = Date.now() - start;
 		result = { ...result, status: 'error', errorMessage: error.message, errors: error, duration, insertedRows: 0, failedRows: batch.length };
-		log(`Error inserting: ${error.message}`, error, batch);
+		log(`[SNOWFLAKE] Error inserting: ${error.message}`, error, batch);
 	}
 
-	log('\n\nData insertion complete;\n\n');
+	log('[SNOWFLAKE] Data insertion complete;');
 	return result;
 
 }
@@ -450,7 +451,7 @@ async function insertData(batch, table, schema) {
  * @return {Promise<InsertResult>}
  */
 async function copyIntoData(batch, table, schema) {
-	log("Appending data using COPY INTO...\n");
+	log("[SNOWFLAKE] Appending data using COPY INTO...");
 	let result = { status: "born", dest: "snowflake" };
 
 	const FILE_PATH = path.resolve(TEMP_DIR, `${TODAY}_${uid(42)}.json`);
@@ -467,9 +468,9 @@ async function copyIntoData(batch, table, schema) {
 	const putCommand = `PUT file://${FILE_PATH} ${stageName}`;
 	try {
 		const putResult = await executeSQL(putCommand);
-		log(`File ${FILE_PATH} uploaded to stage ${stageName}`);
+		log(`[SNOWFLAKE] File ${FILE_PATH} uploaded to stage ${stageName}`);
 	} catch (error) {
-		log(`Error uploading file to stage: ${error.message}`, error);
+		log(`[SNOWFLAKE] Error uploading file to stage: ${error.message}`, error);
 		throw error;
 	}
 
@@ -490,24 +491,24 @@ async function copyIntoData(batch, table, schema) {
 	`;
 	try {
 		const copyIntoResult = await executeSQL(copyCommand);
-		log(`Data copied from stage ${stageName} into table ${table}`);
+		log(`[SNOWFLAKE] Data copied from stage ${stageName} into table ${table}`);
 		result.status = 'success';
 		result.insertedRows = batch.length;
 		result.failedRows = 0;
 
 		const removeCommand = `REMOVE ${stageName}/${fileName}`;
 		const removeFileResult = await executeSQL(removeCommand);
-		log(`File ${fileName} removed from stage ${stageName}`);
+		log(`[SNOWFLAKE] File ${fileName} removed from stage ${stageName}`);
 
 	} catch (error) {
-		log(`Error copying data into table: ${error.message}`, error);
+		log(`[SNOWFLAKE] Error copying data into table: ${error.message}`, error);
 		throw error;
 	} finally {
 		// Remove the temporary file
 		const removeLocalFileResult = await unlink(FILE_PATH);
 	}
 
-	log("Data insertion using Snowpipe complete.\n");
+	log("[SNOWFLAKE] Data insertion using Snowpipe complete.");
 	return result;
 }
 
@@ -521,7 +522,7 @@ async function copyIntoData(batch, table, schema) {
  * @return {Promise<InsertResult>}
  */
 async function insertWithPipe(batch, table, schema) {
-	log("Appending data using Snowpipe...\n");
+	log("[SNOWFLAKE] Appending data using Snowpipe...");
 	let result = { status: "born", dest: "snowflake" };
 
 	const FILE_PATH = path.resolve(TEMP_DIR, `${TODAY}_${uid(42)}.json`);
@@ -538,9 +539,9 @@ async function insertWithPipe(batch, table, schema) {
 	const putCommand = `PUT file://${FILE_PATH} ${stageName}`;
 	try {
 		const putResult = await executeSQL(putCommand);
-		log(`File ${FILE_PATH} uploaded to stage ${stageName}`);
+		log(`[SNOWFLAKE] File ${FILE_PATH} uploaded to stage ${stageName}`);
 	} catch (error) {
-		log(`Error uploading file to stage: ${error.message}`, error);
+		log(`[SNOWFLAKE] Error uploading file to stage: ${error.message}`, error);
 		throw error;
 	}
 
@@ -548,7 +549,7 @@ async function insertWithPipe(batch, table, schema) {
 	const pipeName = `${snowflake_database}.${snowflake_schema}.${snowflake_pipe}_${table}`;
 	try {
 		const response = await snowpipeAPI.insertFile(pipeName, [fileName]);
-		log(`File ${fileName} inserted to Snowpipe ${pipeName}`);
+		log(`[SNOWFLAKE] File ${fileName} inserted to Snowpipe ${pipeName}`);
 		result.status = 'success';
 		result.insertedRows = batch.length;
 		result.failedRows = 0;
@@ -560,16 +561,16 @@ async function insertWithPipe(batch, table, schema) {
 		// Remove the file from the stage after processing
 		const removeCommand = `REMOVE ${stageName}/${fileName}`;
 		const removeFileResult = await executeSQL(removeCommand);
-		log(`File ${fileName} removed from stage ${stageName}`);
+		log(`[SNOWFLAKE] File ${fileName} removed from stage ${stageName}`);
 	} catch (error) {
-		log(`Error notifying Snowpipe: ${error.message}`, error);
+		log(`[SNOWFLAKE] Error notifying Snowpipe: ${error.message}`, error);
 		throw error;
 	} finally {
 		// Remove the temporary local file
 		const removeLocalFile = await unlink(FILE_PATH);
 	}
 
-	log("Data insertion using Snowpipe complete.\n");
+	log("[SNOWFLAKE] Data insertion using Snowpipe complete.");
 	return result;
 }
 
@@ -592,7 +593,7 @@ async function insertWithRetry(batch, table, schema) {
 		} catch (error) {
 			if (error.message === 'TableLockedError') {
 				const waitTime = backoff(attempt);
-				log(`Retry attempt ${attempt + 1}: waiting for ${waitTime} ms before retrying...`);
+				log(`[SNOWFLAKE] Retry attempt ${attempt + 1}: waiting for ${waitTime} ms before retrying...`);
 				await new Promise(resolve => setTimeout(resolve, waitTime));
 				attempt++;
 
@@ -613,7 +614,7 @@ async function insertWithRetry(batch, table, schema) {
  * @return {Promise<InsertResult>}
  */
 async function flushStageToTable(table, schema, stageName) {
-	log("Flushing all files in stage to table...");
+	log("[SNOWFLAKE] Flushing all files in stage to table...");
 
 	const columnMappings = schema.map(col => `$1:${col.name.toLowerCase()} AS ${col.name}`).join(', ');
 
@@ -629,10 +630,10 @@ async function flushStageToTable(table, schema, stageName) {
 
 	try {
 		const copyResult = await executeSQL(copyCommand);
-		log(`All files in stage ${stageName} have been copied to table ${table}`);
+		log(`[SNOWFLAKE] All files in stage ${stageName} have been copied to table ${table}`);
 		return { status: 'success', message: `All files in stage ${stageName} have been copied to table ${table}` };
 	} catch (error) {
-		log(`Error copying data from stage to table: ${error.message}`, error);
+		log(`[SNOWFLAKE] Error copying data from stage to table: ${error.message}`, error);
 		throw error;
 	}
 }
@@ -643,17 +644,17 @@ async function flushStageToTable(table, schema, stageName) {
  * @return {Promise<InsertResult>}
  */
 async function deleteAllFilesFromStage(stageName) {
-	log("Deleting all files from stage...");
+	log("[SNOWFLAKE] Deleting all files from stage...");
 
 	// Generate the REMOVE command
 	const removeCommand = `REMOVE ${stageName}/*`;
 
 	try {
 		const removeStageFilesResult = await executeSQL(removeCommand);
-		log(`All files have been removed from stage ${stageName}`);
+		log(`[SNOWFLAKE] All files have been removed from stage ${stageName}`);
 		return { status: 'success', message: `All files have been removed from stage ${stageName}` };
 	} catch (error) {
-		log(`Error removing files from stage: ${error.message}`, error);
+		log(`[SNOWFLAKE] Error removing files from stage: ${error.message}`, error);
 		throw error;
 	}
 }
@@ -694,41 +695,41 @@ async function insertDummyRecord(tableName, dummyRecord) {
 }
 
 async function waitForTableToBeReady(tableName, retries = 20, maxInsertAttempts = 20) {
-	log(`Checking if table ${tableName} exists...`);
+	log(`[SNOWFLAKE] Checking if table ${tableName} exists...`);
 
 	for (let i = 0; i < retries; i++) {
 		const exists = await checkIfTableExists(tableName);
 		if (exists) {
-			log(`Table ${tableName} is confirmed to exist on attempt ${i + 1}.`);
+			log(`[SNOWFLAKE] Table ${tableName} is confirmed to exist on attempt ${i + 1}.`);
 			break;
 		}
 		const sleepTime = Math.random() * (5000 - 1000) + 1000;
-		log(`Sleeping for ${sleepTime} ms; waiting for table existence; attempt ${i + 1}`);
+		log(`[SNOWFLAKE] Sleeping for ${sleepTime} ms; waiting for table existence; attempt ${i + 1}`);
 		await new Promise(resolve => setTimeout(resolve, sleepTime));
 
 		if (i === retries - 1) {
-			log(`Table ${tableName} does not exist after ${retries} attempts.`);
+			log(`[SNOWFLAKE] Table ${tableName} does not exist after ${retries} attempts.`);
 			return false;
 		}
 	}
 
-	log(`Checking if table ${tableName} is ready for operations...`);
+	log(`[SNOWFLAKE] Checking if table ${tableName} is ready for operations...`);
 	for (let insertAttempt = 0; insertAttempt < maxInsertAttempts; insertAttempt++) {
 		try {
 			const dummyRecord = { "dummy_column": "dummy_value" };
 			const dummyInsert = await insertDummyRecord(tableName, dummyRecord);
 			if (dummyInsert) {
-				log(`Table ${tableName} is ready for operations`);
+				log(`[SNOWFLAKE] Table ${tableName} is ready for operations`);
 				return true;
 			}
 			if (!dummyInsert) {
-				log(`Table ${tableName} is not ready for operations`);
+				log(`[SNOWFLAKE] Table ${tableName} is not ready for operations`);
 				throw "retry";
 			}
 
 		} catch (error) {
 			const sleepTime = Math.random() * (5000 - 1000) + 1000;
-			log(`sleeping ${sleepTime} ms for table ${tableName}, retrying... attempt #${insertAttempt + 1}`);
+			log(`[SNOWFLAKE] sleeping ${sleepTime} ms for table ${tableName}, retrying... attempt #${insertAttempt + 1}`);
 			await new Promise(resolve => setTimeout(resolve, sleepTime));
 
 		}
@@ -780,7 +781,7 @@ function executeSQL(sql, binds, neverThrow = false) {
 						return;
 					}
 					debugger;
-					log(`Failed executing SQL: ${err.message}`, err, options);
+					log(`[SNOWFLAKE] Failed executing SQL: ${err.message}`, err, options);
 					reject(err);
 				} else {
 					resolve(rows);
@@ -805,7 +806,7 @@ function prepareComplexRows(row, schema) {
 			}
 			catch (e) {
 				debugger;
-				log(`Error inserting batch ${col.name}; ${e.message}`, e);
+				log(`[SNOWFLAKE] Error inserting batch ${col.name}; ${e.message}`, e);
 			}
 		}
 	}
@@ -895,10 +896,10 @@ async function dropTables(tableNames) {
 	const dropTablePromises = Object.values(tableNames).map(async (table) => {
 		const dropTableQuery = `DROP TABLE IF EXISTS ${table}`;
 		const dropTableResult = await executeSQL(dropTableQuery);
-		results.push(dropTableResult);
+		results.push(dropTableResult?.[0]?.status);
 		const dropPipeQuery = `DROP PIPE IF EXISTS ${snowflake_pipe}_${table}`;
 		const dropPipeResult = await executeSQL(dropPipeQuery);
-		results.push(dropPipeResult);
+		results.push(dropPipeResult?.[0]?.status);
 	});
 
 	await Promise.all(dropTablePromises);
@@ -906,9 +907,11 @@ async function dropTables(tableNames) {
 	// Drop stage and pipe
 	const dropStageQuery = `DROP STAGE IF EXISTS ${snowflake_stage}`;
 	const dropStageResult = await executeSQL(dropStageQuery);
-	results.push(dropStageResult);
+	results.push(dropStageResult?.[0]?.status);
 
-	return results.flat();
+	return { numTablesDropped: results.length, tablesDropped: results.flat()};
+
+	
 }
 
 

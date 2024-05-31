@@ -2,12 +2,13 @@
  * @fileoverview validates incoming environment variables
  */
 
+
+/** @typedef {import('../types').Targets} Targets */
+
 const defaultEventsTableName = 'events';
 const defaultUsersTableName = 'users';
 const defaultGroupsTableName = 'groups';
 const defaultWarehouse = 'MIXPANEL';
-const defaultLake = '';
-const defaultDestinations = [defaultWarehouse];
 
 function validate(PARAMS = { ...process.env }) {
 
@@ -23,16 +24,15 @@ function validate(PARAMS = { ...process.env }) {
 		}
 	}
 	const errors = [];
-	let { WAREHOUSES = "",
-		LAKES = "",
+	let { DESTINATIONS = "",
 		EVENTS_TABLE_NAME,
 		USERS_TABLE_NAME,
 		GROUPS_TABLE_NAME,
 	} = PARAMS;
 
-	const warehouseList = WAREHOUSES.split(',').map(wh => wh.trim()).filter(a => a);
-	const lakeList = LAKES.split(',').map(wh => wh.trim()).filter(a => a);
-	const DESTINATIONS = [...warehouseList, ...lakeList].flat().filter(a => a).map(t => t.toUpperCase());
+	/** @type {Targets[]} */
+	const TARGETS = DESTINATIONS.split(',').map(wh => wh.trim().toUpperCase()).filter(a => a);
+	PARAMS.TARGETS = TARGETS;
 
 	if (!EVENTS_TABLE_NAME) {
 		PARAMS.EVENTS_TABLE_NAME = defaultEventsTableName;
@@ -50,15 +50,8 @@ function validate(PARAMS = { ...process.env }) {
 		process.env.GROUPS_TABLE_NAME = defaultGroupsTableName;
 	}
 
-
-
-	if (DESTINATIONS.length === 0) {
-		PARAMS.WAREHOUSES = defaultWarehouse;
-		WAREHOUSES = defaultWarehouse;
-		process.env.WAREHOUSES = defaultWarehouse;
-		PARAMS.LAKES = defaultLake;
-		LAKES = defaultLake;
-		process.env.LAKES = defaultLake;
+	if (TARGETS.length === 0) {
+		TARGETS.push(defaultWarehouse);
 	}
 
 	// BIGQUERY
@@ -74,17 +67,17 @@ function validate(PARAMS = { ...process.env }) {
 	// S3
 	const { s3_bucket = "", s3_region = "", s3_access_key_id = "", s3_secret_access_key = "" } = PARAMS;
 	// AZURE BLOB STORAGE
-	const { azure_account = "", azure_account_key = "", azure_container = "" } = PARAMS;
+	const { azure_account = "", azure_key = "", azure_container = "", azure_connection_string = "" } = PARAMS;
 
 	// bigquery
-	if (DESTINATIONS.includes('BIGQUERY')) {
+	if (TARGETS.includes('BIGQUERY')) {
 		if (!bigquery_project) errors.push(new Error('bigquery_project is required'));
 		if (!bigquery_dataset) errors.push(new Error('bigquery_dataset is required'));
 		// if (!bigquery_keyfile && (!bigquery_service_account || !bigquery_service_account_private_key)) errors.push(new Error('bigquery_keyfile or bigquery_service_account + bigquery_service_account_private_key is required'));
 	}
 
 	// snowflake
-	if (DESTINATIONS.includes('SNOWFLAKE')) {
+	if (TARGETS.includes('SNOWFLAKE')) {
 		if (!snowflake_account) errors.push(new Error('snowflake_account is required'));
 		if (!snowflake_user) errors.push(new Error('snowflake_user is required'));
 		if (!snowflake_password) errors.push(new Error('snowflake_password is required'));
@@ -100,7 +93,7 @@ function validate(PARAMS = { ...process.env }) {
 	}
 
 	// redshift
-	if (DESTINATIONS.includes('REDSHIFT')) {
+	if (TARGETS.includes('REDSHIFT')) {
 		if (!redshift_workgroup) errors.push(new Error('redshift_workgroup is required'));
 		if (!redshift_database) errors.push(new Error('redshift_database is required'));
 		if (!redshift_access_key_id) errors.push(new Error('redshift_access_key_id is required'));
@@ -109,28 +102,28 @@ function validate(PARAMS = { ...process.env }) {
 		if (!redshift_schema_name) errors.push(new Error('redshift_schema_name is required'));
 	}
 
-	if (DESTINATIONS.includes('MIXPANEL')) {
+	if (TARGETS.includes('MIXPANEL')) {
 		if (!mixpanel_token) {
 			//we don't actually care about this
 		}
 	}
 
-	if (DESTINATIONS.includes('GCS')) {
+	if (TARGETS.includes('GCS')) {
 		if (!gcs_project) errors.push(new Error('gcs_project is required'));
 		if (!gcs_bucket) errors.push(new Error('gcs_bucket is required'));
 
 	}
 
-	if (DESTINATIONS.includes('S3')) {
+	if (TARGETS.includes('S3')) {
 		if (!s3_bucket) errors.push(new Error('s3_bucket is required'));
 		if (!s3_region) errors.push(new Error('s3_region is required'));
 		if (!s3_access_key_id) errors.push(new Error('s3_access_key_id is required'));
 		if (!s3_secret_access_key) errors.push(new Error('s3_secret_access_key is required'));
 	}
 
-	if (DESTINATIONS.includes('AZURE')) {
+	if (TARGETS.includes('AZURE')) {
 		if (!azure_account) errors.push(new Error('azure_account is required'));
-		if (!azure_account_key) errors.push(new Error('azure_account_key is required'));
+		if (!azure_connection_string && !azure_key) errors.push(new Error('azure_key or azure_connection_string is required'));		
 		if (!azure_container) errors.push(new Error('azure_container is required'));
 	}
 

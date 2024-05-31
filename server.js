@@ -1,12 +1,10 @@
 // A row-level Mixpanel proxy server which receives data from Mixpanel's JS Lib and sends it to DWHs.
 // by ak@mixpanel.com
 
-//todos: azure blob + azure functions
-// better logging labels depending on which middleware is running
 
 // TYPES
 /** @typedef {import('./types').Runtimes} Runtimes */
-/** @typedef {import('./types').Destinations} Destinations */
+/** @typedef {import('./types').Targets} Targets */
 /** @typedef {import('./types').Warehouse} Warehouse */
 /** @typedef {import('./types').Lake} Lake */
 /** @typedef {import('./types').Endpoints} Endpoints */
@@ -24,13 +22,14 @@ dayjs.extend(utc);
 const { clone } = require('ak-tools');
 
 
-// CODE SPLITTING
+// HELPERS
 const setupCORS = require('./components/corsConfig');
 const proxyAssets = require('./components/proxyAssets');
 const validateEnv = require('./components/validate');
 const bodyParse = require('./components/bodyParse');
 const { parseSDKData, flattenAndRenameForWarehouse, schematizeForWarehouse } = require('./components/transforms');
 
+// LOGGING
 const log = require('./components/logger');
 
 // MIDDLEWARE
@@ -42,7 +41,7 @@ const gcs = require('./middleware/gcs');
 const s3 = require('./middleware/s3');
 const azure = require('./middleware/azure');
 const middleware = { bigquery, snowflake, redshift, mixpanel, gcs, s3, azure };
-
+const middlewareList = Object.keys(middleware).map(m => m.toLowerCase());
 
 
 // ENV VARS + CONFIG
@@ -51,27 +50,27 @@ const PARAMS = validateEnv();
 const NODE_ENV = process.env.NODE_ENV || 'prod';
 if (NODE_ENV === 'dev') { log.verbose(true); log.cli(true); } // log everything
 if (NODE_ENV === 'prod') { log.verbose(false); log.cli(false); } //only logs structured logs + error
-log(`running in ${NODE_ENV} mode; version: ${version}; verbose: ${log.isVerbose()} cli: ${log.isCli()}`);
+log(`---- running in ${NODE_ENV} mode; version: ${version}; verbose: ${log.isVerbose()} cli: ${log.isCli()} ----`);
 
-const WAREHOUSES = process.env.WAREHOUSES || "MIXPANEL";
-const warehouseList = WAREHOUSES.split(',').map(wh => wh.trim()).filter(a => a);
-const LAKE = process.env.LAKE || "";
-const lakeList = LAKE.split(',').map(wh => wh.trim()).filter(a => a);
+
+const DESTINATIONS = process.env.DESTINATIONS || "MIXPANEL";
+/** @type {Targets[]} */
+const TARGETS = DESTINATIONS.split(',').map(wh => wh.trim().toLowerCase()).filter(a => a).filter(supported);
+
+/** @type {Runtimes} */
+let RUNTIME = process.env.RUNTIME?.toUpperCase() || 'LOCAL';
+
+
 const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'events';
 const USERS_TABLE_NAME = process.env.USERS_TABLE_NAME || 'users';
 const GROUPS_TABLE_NAME = process.env.GROUPS_TABLE_NAME || 'groups';
-const MIXPANEL_TOKEN = process.env.MIXPANEL_TOKEN || "";
-
-/** @type {Destinations[]} */
-const DESTINATIONS = [...warehouseList, ...lakeList].flat().filter(a => a).map(t => t.toLowerCase());
-/** @type {Runtimes} */
-let RUNTIME = process.env.RUNTIME?.toUpperCase() || 'LOCAL';
 /** @type {TableNames} */
 const TABLE_NAMES = { eventTable: EVENTS_TABLE_NAME, userTable: USERS_TABLE_NAME, groupTable: GROUPS_TABLE_NAME };
 
 // MIDDLEWARE
 let FRONTEND_URL = process.env.FRONTEND_URL || "";
 if (FRONTEND_URL === "none") FRONTEND_URL = "";
+const MIXPANEL_TOKEN = process.env.MIXPANEL_TOKEN || "";
 setupCORS(app, FRONTEND_URL);
 proxyAssets(app, NODE_ENV);
 bodyParse(app);
@@ -108,21 +107,32 @@ switch (RUNTIME) {
 		break;
 	default:
 		app.listen(PORT, () => {
-			log(`\n\nproxy alive on ${PORT}\n\n`);
+			log(`---- proxy alive on ${PORT} ---- `);
 		});
 		break;
 }
 
 // in-use middleware + initialization
-const activeMiddleware = DESTINATIONS
+const activeMiddleware = TARGETS
 	.filter(wh => middleware[wh.toLowerCase()])
 	.map(wh => ({ name: wh, api: middleware[wh.toLowerCase()] }));
 
 for (const { name, api: middleware } of activeMiddleware) {
 	if (middleware.init) {
 		middleware.init(TABLE_NAMES); //these methods are async, but we don't want to wait for them.
-		log(`initializing ${name}`);
+		log(`---- initializing ${name} ----`);
 	}
+}
+
+/**
+ * helper function to check if a middleware is supported
+ * @param  {string} middleware_name user input from .env
+ */
+function supported(middleware_name) {
+	if (!middleware_name) return false;
+	if (typeof middleware_name !== 'string') return false;
+	if (middlewareList.includes(middleware_name.toLowerCase())) return true;
+	return false;	
 }
 
 /**
@@ -166,14 +176,14 @@ async function handleMixpanelRequest(type, req, res) {
 		const flush = await Promise.all(activeMiddleware.map(async middleware => {
 			const { name, api } = middleware;
 			try {
-				log(`sending ${type} data to ${name}`);
+				// log(`---- sending ${type} data to ${name}`);
 				const uploadData = middleware.name === 'mixpanel' ? data : clone(flatData);
 				const result = await api(uploadData, type, TABLE_NAMES);
 				results.push({ name, result });
 				return { name, result };
 			}
 			catch (e) {
-				log(`error sending ${type} data to ${name}`, e);
+				log(`---- error sending ${type} data to ${name} ---- `, e);
 				results.push({ name, status: e.message });
 				return { name, status: `ERROR: ${e.message}` };
 			}
@@ -197,22 +207,18 @@ async function handleDrop(req, res) {
 	const drops = await Promise.all(activeMiddleware.map(async middleware => {
 		const { name, api } = middleware;
 		try {
-			log(`DROPPING TABLES in ${name}`);
-			const status = await api.drop(TABLE_NAMES);
-			results.push({ name, status });
-			return { name, status };
+			log(`---- DROPPING TABLES in ${name?.toUpperCase()} ---- `);
+			const result = await api.drop(TABLE_NAMES);
+			results.push({ name, result });
+			return { name, result };
 		}
 		catch (e) {
-			log(`error dropping in ${name}`, e);
-			results.push({ name, status: e.message });
-			return { name, status: `ERROR: ${e.message}` };
+			log(`---- error dropping in ${name} ---- `, e);
+			results.push({ name, result: e.message });
+			return { name, result: `ERROR: ${e.message}` };
 		}
 	}));
 
 	res.send(results);
 }
 
-
-
-// module.exports.parseSDKData = parseSDKData;
-// module.exports.handleMixpanelData = handleMixpanelRequest;
