@@ -56,12 +56,14 @@ let snowflake_access_url;
 let isConnectionReady;
 let isDatasetReady;
 let areTablesReady;
+let currentUser;
 
 //required for copy into
 let snowflake_stage;
 let isStageReady;
 
 // required for pipelines
+// todo: pipelines cannot be used on internal stages... afaik
 let snowflake_pipe;
 let isPipeReady;
 let isSnowPipeReady;
@@ -152,8 +154,9 @@ async function initializeSnowflake(tableNames) {
 		isConnectionReady = await createSnowflakeConnection();
 		if (!isConnectionReady) throw new Error("snowflake credentials verification failed.");
 		isConnectionReady = await connection.isValidAsync();
+		currentUser = await getCurrentUser();
 		if (!isConnectionReady) throw new Error("snowflake connection is in an invalid state.");
-		log("[SNOWFLAKE] connection is ready.");
+		log(`[SNOWFLAKE] connection is ready; logged in as ${currentUser?.name} : ${currentUser?.email}`);
 	}
 
 	if (!isDatasetReady) {
@@ -167,7 +170,7 @@ async function initializeSnowflake(tableNames) {
 		areTablesReady = tableCheckResults.every(result => result);
 		if (!areTablesReady) throw new Error("Table verification or creation failed.");
 		transport = "insert";
-		log("[SNOWFLAKE] using INSERT + BIND transport method.");
+
 	}
 
 	const result = [isConnectionReady, isDatasetReady, areTablesReady];
@@ -179,18 +182,17 @@ async function initializeSnowflake(tableNames) {
 			isStageReady = stageCheckResults;
 			result.push(isStageReady);
 			transport = "copy";
-			log("[SNOWFLAKE] using COPY INTO transport method.");
+
 		}
 	}
 
-	//pipe uses a streaming something...
+	//pipe using snowpipe...
 	if (snowflake_pipe) {
 		if (!isPipeReady) {
 			const pipeCheckResults = await verifyOrCreatePipe(tableNames);
 			isPipeReady = pipeCheckResults;
 			result.push(isPipeReady);
 			transport = "pipe";
-			log("[SNOWFLAKE] using SNOWPIPE transport method.");
 		}
 
 		if (!isSnowPipeReady) {
@@ -199,13 +201,11 @@ async function initializeSnowflake(tableNames) {
 
 		}
 	}
-
-	// transport = "copy"
+	log(`[SNOWFLAKE] using ${transport?.toUpperCase()} transport method.`);
 	return result;
 }
 
-
-//todo auth is bad here... needs priv key
+// this auth method is only needed for pipes
 async function createSnowpipeConnection() {
 	try {
 		log("[SNOWFLAKE] Creating Snowpipe connection...");
@@ -261,7 +261,6 @@ async function createSnowflakeConnection() {
 		});
 	});
 }
-
 
 async function verifyOrCreateDatabase(databaseName = snowflake_database, schemaName = snowflake_schema) {
 	const checkDatabaseQuery = `SELECT COUNT(*) AS count FROM ${databaseName.toUpperCase()}.INFORMATION_SCHEMA.DATABASES WHERE DATABASE_NAME = '${databaseName.toUpperCase()}'`;
@@ -382,7 +381,7 @@ async function verifyOrCreatePipe(tableNames) {
 				.join(', ');
 
 			const createPipeQuery = `
-				CREATE OR REPLACE PIPE ${snowflake_pipe}_${table} AS
+				CREATE OR REPLACE PIPE ${snowflake_pipe}_${table} AUTO_INGEST = FALSE AS
 				COPY INTO ${table}
 				FROM (
 					SELECT ${columnMappings}
@@ -399,7 +398,6 @@ async function verifyOrCreatePipe(tableNames) {
 	}
 	return true;
 }
-
 
 /**
  * insert data into snowflake; the most basic way
@@ -430,7 +428,7 @@ async function insertData(batch, table, schema) {
 		const duration = Date.now() - start;
 		const insertedRows = task?.[0]?.['number of rows inserted'] || 0;
 		const failedRows = batch.length - insertedRows;
-		result = { ...result, duration, status: 'success', insertedRows, failedRows };
+		result = { ...result, duration, status: 'success', insertedRows, failedRows, meta: { method: transport } };
 
 	} catch (error) {
 		const duration = Date.now() - start;
@@ -452,7 +450,7 @@ async function insertData(batch, table, schema) {
  */
 async function copyIntoData(batch, table, schema) {
 	log("[SNOWFLAKE] Appending data using COPY INTO...");
-	let result = { status: "born", dest: "snowflake" };
+	let result = { status: "born" };
 
 	const FILE_PATH = path.resolve(TEMP_DIR, `${TODAY}_${uid(42)}.json`);
 	const fileName = path.basename(FILE_PATH);
@@ -492,9 +490,7 @@ async function copyIntoData(batch, table, schema) {
 	try {
 		const copyIntoResult = await executeSQL(copyCommand);
 		log(`[SNOWFLAKE] Data copied from stage ${stageName} into table ${table}`);
-		result.status = 'success';
-		result.insertedRows = batch.length;
-		result.failedRows = 0;
+		result = { status: 'success', insertedRows: batch.length, failedRows: 0, meta: { method: transport } };
 
 		const removeCommand = `REMOVE ${stageName}/${fileName}`;
 		const removeFileResult = await executeSQL(removeCommand);
@@ -512,7 +508,6 @@ async function copyIntoData(batch, table, schema) {
 	return result;
 }
 
-
 /**
  * an attempt to use snowpipe to stream data into snowflake
  * ? https://docs.snowflake.com/en/user-guide/data-load-snowpipe-streaming-overview
@@ -523,10 +518,10 @@ async function copyIntoData(batch, table, schema) {
  */
 async function insertWithPipe(batch, table, schema) {
 	log("[SNOWFLAKE] Appending data using Snowpipe...");
-	let result = { status: "born", dest: "snowflake" };
+	let result = { status: "born" };
 
 	const FILE_PATH = path.resolve(TEMP_DIR, `${TODAY}_${uid(42)}.json`);
-	const fileName = path.basename(FILE_PATH);
+	const fileName = path.basename(FILE_PATH).concat(".gz");
 
 	// Prepare data to be uploaded to the stage
 	const dataToUpload = batch.map(record => JSON.stringify(record)).join('\n');
@@ -535,11 +530,12 @@ async function insertWithPipe(batch, table, schema) {
 	const localFileResult = await writeFile(FILE_PATH, dataToUpload);
 
 	// Use the PUT command to upload the file to the Snowflake stage
+	// const stageName = `@%${table}`;
 	const stageName = `@${snowflake_stage}`;
 	const putCommand = `PUT file://${FILE_PATH} ${stageName}`;
 	try {
 		const putResult = await executeSQL(putCommand);
-		log(`[SNOWFLAKE] File ${FILE_PATH} uploaded to stage ${stageName}`);
+		log(`[SNOWFLAKE] File ${FILE_PATH} uploaded to table stage ${stageName}`);
 	} catch (error) {
 		log(`[SNOWFLAKE] Error uploading file to stage: ${error.message}`, error);
 		throw error;
@@ -550,18 +546,16 @@ async function insertWithPipe(batch, table, schema) {
 	try {
 		const response = await snowpipeAPI.insertFile(pipeName, [fileName]);
 		log(`[SNOWFLAKE] File ${fileName} inserted to Snowpipe ${pipeName}`);
-		result.status = 'success';
-		result.insertedRows = batch.length;
-		result.failedRows = 0;
+		result = { status: 'success', insertedRows: batch.length, failedRows: 0, meta: { method: transport } };
 
-		const report = await snowpipeAPI.insertReport(pipeName);
-		const history = await snowpipeAPI.loadHistoryScan(pipeName, dayjs().subtract(1, 'day').toISOString(), dayjs().add(1, 'day').toISOString());
-		debugger; //! JEFF PLEASE HELP...I CANT GET THE DAMN FILES IN THE COMPUTER
+		// const report = await snowpipeAPI.insertReport(pipeName);
+		// const history = await snowpipeAPI.loadHistoryScan(pipeName, dayjs().subtract(1, 'day').toISOString(), dayjs().add(1, 'day').toISOString());
 
+		// ! THIS IS A PROBLEM BECAUSE SOMETIMES FILES GET DELETED BEFORE THEY ARE PROCESSED
 		// Remove the file from the stage after processing
-		const removeCommand = `REMOVE ${stageName}/${fileName}`;
-		const removeFileResult = await executeSQL(removeCommand);
-		log(`[SNOWFLAKE] File ${fileName} removed from stage ${stageName}`);
+		// const removeCommand = `REMOVE ${stageName}/${fileName}`;
+		// const removeFileResult = await executeSQL(removeCommand);
+		// log(`[SNOWFLAKE] File ${fileName} removed from table stage ${stageName}`);
 	} catch (error) {
 		log(`[SNOWFLAKE] Error notifying Snowpipe: ${error.message}`, error);
 		throw error;
@@ -573,8 +567,6 @@ async function insertWithPipe(batch, table, schema) {
 	log("[SNOWFLAKE] Data insertion using Snowpipe complete.");
 	return result;
 }
-
-
 
 /**
  * @param  {WarehouseData} batch
@@ -737,6 +729,23 @@ async function waitForTableToBeReady(tableName, retries = 20, maxInsertAttempts 
 	return false;
 }
 
+async function getCurrentUser() {
+	try {
+		const query = "SELECT CURRENT_USER()";
+		const getUser = await executeSQL(query);
+		if (!Array.isArray(getUser)) throw new Error("Failed to get current user");
+		const currentUser = Object.values(getUser[0])[0];
+		const infos = `SHOW USERS LIKE '${currentUser}'`;
+		const getDetails = await executeSQL(infos);
+		if (!Array.isArray(getDetails)) throw new Error("Failed to get current user details");
+		return getDetails.slice().pop();
+	}
+	catch (error) {
+		log("[SNOWFLAKE] Failed to get current user:", error);
+		return null;
+	}
+
+}
 
 // HELPERS
 function getSnowflakeSchema(type) {
@@ -909,12 +918,27 @@ async function dropTables(tableNames) {
 	const dropStageResult = await executeSQL(dropStageQuery);
 	results.push(dropStageResult?.[0]?.status);
 
-	return { numTablesDropped: results.length, tablesDropped: results.flat()};
+	return { numTablesDropped: results.length, tablesDropped: results.flat() };
 
-	
+
 }
 
+async function cleanupOldFilesFromStage(stageName, thresholdInDays = 1) {
+    log("[SNOWFLAKE] Cleaning up old files from stage...");
 
+    const cleanupQuery = `
+        REMOVE ${stageName} PATTERN = '.*.json.gz' MODIFIED_BEFORE = DATEADD('DAY', -${thresholdInDays}, CURRENT_TIMESTAMP)
+    `;
+
+    try {
+        const cleanupResult = await executeSQL(cleanupQuery);
+        log(`[SNOWFLAKE] Old files cleaned up from stage ${stageName}`);
+        return cleanupResult;
+    } catch (error) {
+        log(`[SNOWFLAKE] Error cleaning up old files from stage: ${error.message}`, error);
+        throw error;
+    }
+};
 
 
 

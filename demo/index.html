@@ -202,8 +202,23 @@
 
 		// Function to randomly click one of the buttons
 		function randomlyClickButton() {
-			const randomIndex = Math.floor(Math.random() * buttons.length);
-			buttons[randomIndex].click();
+			if (Math.random() > .49) buttons[randomNum()].click();
+			if (Math.random() > .49) buttons[randomNum()].click();
+			if (Math.random() > .49) buttons[randomNum()].click();
+			if (Math.random() > .49) buttons[randomNum()].click();
+			if (Math.random() > .49) buttons[randomNum()].click();
+			if (Math.random() > .49) buttons[randomNum()].click();
+		}
+
+		function randomNum() {
+			if (buttons) {
+				return Math.floor(Math.random() * buttons.length);
+			}
+
+			else {
+				return Math.floor(Math.random() * 7);
+			}
+
 		}
 
 		let randomClickInterval;
@@ -211,8 +226,8 @@
 		// Function to continuously click buttons with some jitter
 		function startRandomClicks() {
 			all.textContent = 'STOP ✋';
-			const jitter = Math.random() * 100; // Random jitter between 0 and 100ms
-			const interval = num(50, 350) + jitter; // Base interval of  jitter
+			const jitter = Math.random() * 42; // Random jitter between 0 and 100ms
+			const interval = num(1, 420) + jitter; // Base interval of  jitter
 			randomClickInterval = setInterval(randomlyClickButton, interval);
 		}
 

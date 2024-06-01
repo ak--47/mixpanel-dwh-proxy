@@ -32,6 +32,7 @@ function validate(PARAMS = { ...process.env }) {
 
 	/** @type {Targets[]} */
 	const TARGETS = DESTINATIONS.split(',').map(wh => wh.trim().toUpperCase()).filter(a => a);
+	// @ts-ignore
 	PARAMS.TARGETS = TARGETS;
 
 	if (!EVENTS_TABLE_NAME) {
@@ -55,19 +56,65 @@ function validate(PARAMS = { ...process.env }) {
 	}
 
 	// BIGQUERY
-	const { bigquery_project = "", bigquery_dataset = "", bigquery_service_account = "", bigquery_service_account_private_key = "", bigquery_keyfile = "" } = PARAMS;
+	const {
+		bigquery_project = "",
+		bigquery_dataset = "",
+		bigquery_service_account = "",
+		bigquery_service_account_private_key = "",
+		bigquery_keyfile = ""
+	} = PARAMS;
 	// SNOWFLAKE
-	const { snowflake_account = "", snowflake_user = "", snowflake_password = "", snowflake_database = "", snowflake_schema = "", snowflake_warehouse = "", snowflake_role = "", snowflake_access_url = "", snowflake_stage = "", snowflake_pipe = "" } = PARAMS;
+	const {
+		snowflake_account = "",
+		snowflake_user = "",
+		snowflake_password = "",
+		snowflake_database = "",
+		snowflake_schema = "",
+		snowflake_warehouse = "",
+		snowflake_role = "",
+		snowflake_access_url = "",
+		snowflake_stage = "",
+		snowflake_pipe = "",
+		snowflake_private_key = "",
+		snowflake_region = "",
+		snowflake_provider = ""
+	} = PARAMS;
 	// REDSHIFT
-	const { redshift_workgroup = "", redshift_database = "", redshift_access_key_id = "", redshift_secret_access_key = "", redshift_session_token = "", redshift_region = "", redshift_schema_name = "" } = PARAMS;
+	const {
+		redshift_workgroup = "",
+		redshift_database = "",
+		redshift_access_key_id = "",
+		redshift_secret_access_key = "",
+		redshift_session_token = "",
+		redshift_region = "",
+		redshift_schema_name = ""
+	} = PARAMS;
 	// MIXPANEL
-	const { mixpanel_token = "" } = PARAMS;
+	const {
+		mixpanel_token = ""
+	} = PARAMS;
 	// GCS
-	const { gcs_project = "", gcs_bucket = "", gcs_service_account = "", gcs_service_account_private_key = "", gcs_keyfile = "" } = PARAMS;
+	const {
+		gcs_project = "",
+		gcs_bucket = "",
+		gcs_service_account = "",
+		gcs_service_account_private_key = "",
+		gcs_keyfile = ""
+	} = PARAMS;
 	// S3
-	const { s3_bucket = "", s3_region = "", s3_access_key_id = "", s3_secret_access_key = "" } = PARAMS;
+	const {
+		s3_bucket = "",
+		s3_region = "",
+		s3_access_key_id = "",
+		s3_secret_access_key = ""
+	} = PARAMS;
 	// AZURE BLOB STORAGE
-	const { azure_account = "", azure_key = "", azure_container = "", azure_connection_string = "" } = PARAMS;
+	const {
+		azure_account = "",
+		azure_key = "",
+		azure_container = "",
+		azure_connection_string = ""
+	} = PARAMS;
 
 	// bigquery
 	if (TARGETS.includes('BIGQUERY')) {
@@ -86,10 +133,15 @@ function validate(PARAMS = { ...process.env }) {
 		if (!snowflake_warehouse) errors.push(new Error('snowflake_warehouse is required'));
 		if (!snowflake_role) errors.push(new Error('snowflake_role is required'));
 		if (!snowflake_access_url) errors.push(new Error('snowflake_access_url is required'));
-
+		if (snowflake_pipe && !snowflake_stage) errors.push(new Error('snowflake_stage is required to use pipelines'));
 		if (snowflake_pipe) {
-			if (!snowflake_stage) errors.push(new Error('snowflake_stage is required to use pipelines'));
+			if (!snowflake_private_key) errors.push(new Error('snowflake_private_key is required'));
+			if (!snowflake_region) errors.push(new Error('snowflake_region is required'));
 		}
+
+		// if (snowflake_pipe) {
+		// 	if (!snowflake_stage) errors.push(new Error('snowflake_stage is required to use pipelines'));
+		// }
 	}
 
 	// redshift
@@ -123,7 +175,7 @@ function validate(PARAMS = { ...process.env }) {
 
 	if (TARGETS.includes('AZURE')) {
 		if (!azure_account) errors.push(new Error('azure_account is required'));
-		if (!azure_connection_string && !azure_key) errors.push(new Error('azure_key or azure_connection_string is required'));		
+		if (!azure_connection_string && !azure_key) errors.push(new Error('azure_key or azure_connection_string is required'));
 		if (!azure_container) errors.push(new Error('azure_container is required'));
 	}
 
