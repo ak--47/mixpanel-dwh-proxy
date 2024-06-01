@@ -132,7 +132,7 @@ function supported(middleware_name) {
 	if (!middleware_name) return false;
 	if (typeof middleware_name !== 'string') return false;
 	if (middlewareList.includes(middleware_name.toLowerCase())) return true;
-	return false;	
+	return false;
 }
 
 /**
@@ -165,6 +165,16 @@ async function handleMixpanelRequest(type, req, res) {
 			if (type === 'track') record.properties.token = MIXPANEL_TOKEN;
 			if (type === 'engage') record.$token = MIXPANEL_TOKEN;
 			if (type === 'groups') record.$token = MIXPANEL_TOKEN;
+		}
+
+		//ensure timestamp
+		if (type === 'track') {
+			if (record.properties) {
+				if (!record.properties.time) {
+					record.properties.time = Date.now();
+				}
+			}
+
 		}
 	});
 

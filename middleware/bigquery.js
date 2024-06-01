@@ -36,7 +36,7 @@ let bigquery_dataset;
 let bigquery_project;
 let bigquery_keyfile;
 let bigquery_service_account;
-let bigquery_service_account_pass;
+let bigquery_service_account_private_key;
 let isClientReady;
 let isDatasetReady;
 let areTablesReady;
@@ -87,7 +87,7 @@ async function main(data, type, tableNames) {
 
 async function initializeBigQuery(tableNames) {
 	// ENV STUFF
-	({ bigquery_dataset = "", bigquery_project, bigquery_keyfile, bigquery_service_account, bigquery_service_account_pass } =
+	({ bigquery_dataset = "", bigquery_project, bigquery_keyfile, bigquery_service_account, bigquery_service_account_private_key } =
 		process.env);
 	const { eventTable, userTable, groupTable } = tableNames;
 	if (!isClientReady) {
@@ -119,10 +119,10 @@ async function verifyBigQueryCredentials() {
 		auth.keyFile = bigquery_keyfile;
 	}
 	if (bigquery_project) auth.projectId = bigquery_project;
-	if (bigquery_service_account && bigquery_service_account_pass) {
+	if (bigquery_service_account && bigquery_service_account_private_key) {
 		auth.credentials = {
 			client_email: bigquery_service_account,
-			private_key: bigquery_service_account_pass,
+			private_key: bigquery_service_account_private_key,
 		};
 	}
 
