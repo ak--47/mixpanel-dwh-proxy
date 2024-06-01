@@ -5,7 +5,7 @@ const { flattenAndRenameForWarehouse } = require('../components/transforms');
 const isDebugMode = process.env.NODE_OPTIONS?.includes('--inspect') || process.env.NODE_OPTIONS?.includes('--inspect-brk');
 
 
-/** @typedef {import('../types').AllConfigs} Params */
+/** @typedef {import('../types').EnvVars} Params */
 
 /** @type {Params} */
 // @ts-ignore

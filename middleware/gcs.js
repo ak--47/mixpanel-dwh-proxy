@@ -285,7 +285,7 @@ async function insertData(batch, prefix) {
 	}
 
 	log("[GCS] Data insertion complete.");
-	return { ...result };
+	return result;
 }
 
 
