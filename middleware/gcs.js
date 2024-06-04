@@ -15,6 +15,7 @@ const { tmpdir } = require('os');
 const TEMP_DIR = NODE_ENV === 'prod' ? path.resolve(tmpdir()) : path.resolve('./tmp');
 const dayjs = require('dayjs');
 const TODAY = dayjs().format('YYYY-MM-DD');
+const { insertWithRetry } = require("../components/retries.js");
 if (NODE_ENV === 'test') {
 	log.verbose(true);
 	log.cli(true);
@@ -78,7 +79,7 @@ async function main(data, type, tableNames) {
 
 
 	// @ts-ignore
-	const result = await insertData(data, targetPrefix);
+	const result = await insertWithRetry(insertData, data, targetPrefix);
 	const duration = Date.now() - startTime;
 	result.duration = duration;
 	return result;

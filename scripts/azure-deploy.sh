@@ -22,7 +22,7 @@ export RUNTIME=AZURE
 export REGION=US
 
 # Deploy the function
-func azure functionapp publish your-azure-function-app-name --publish-local-settings -y \
+func azure functionapp publish mp-dwh-proxy --publish-local-settings -y \
   --set MIXPANEL_TOKEN=none \
   --set FRONTEND_URL=none \
   --set RUNTIME=prod \

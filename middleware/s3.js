@@ -12,6 +12,7 @@ const log = require("../components/logger.js");
 const dayjs = require('dayjs');
 const TODAY = dayjs().format('YYYY-MM-DD');
 const zlib = require('zlib');
+const { insertWithRetry } = require("../components/retries.js");
 
 const NODE_ENV = process.env.NODE_ENV || "prod";
 const TEMP_DIR = NODE_ENV === 'prod' ? path.resolve(tmpdir()) : path.resolve('./tmp');
@@ -71,7 +72,7 @@ async function main(data, type, tableNames) {
 			throw new Error("Invalid Record Type");
 	}
 
-	const result = await insertData(data, targetPrefix);
+	const result = await insertWithRetry(insertData, data, targetPrefix);
 	const duration = Date.now() - startTime;
 	result.duration = duration;
 	return result;

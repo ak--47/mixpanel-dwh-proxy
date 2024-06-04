@@ -8,6 +8,7 @@ const log = require('../components/logger.js');
 const u = require('ak-tools');
 const { schematizeForWarehouse } = require('../components/transforms.js');
 const schemas = require('./redshift-schemas.js');
+const { insertWithRetry } = require("../components/retries.js");
 
 const NODE_ENV = process.env.NODE_ENV || "prod";
 let MAX_RETRIES = process.env.MAX_RETRIES || 5;
@@ -74,7 +75,7 @@ async function main(data, type, tableNames) {
 
 	const schema = getRedshiftSchema(type);
 	const preparedData = schematizeForWarehouse(data, schema);
-	const result = await insertWithRetry(preparedData, targetTable, schema);
+	const result = await insertWithRetry(insertData, preparedData, targetTable, schema);
 	const duration = Date.now() - startTime;
 	result.duration = duration;
 	return result;
@@ -215,30 +216,6 @@ async function insertData(batch, table, schema) {
 
 	log('[REDSHIFT] Data insertion complete;');
 	return result;
-}
-
-async function insertWithRetry(batch, table, schema) {
-	let attempt = 0;
-	const backoff = (attempt) => Math.min(1000 * 2 ** attempt, 30000); // Exponential backoff
-
-	// @ts-ignore
-	while (attempt < MAX_RETRIES) {
-		try {
-			const result = await insertData(batch, table, schema);
-			return result;
-		} catch (error) {
-			if (error.message.includes('lock')) {
-				const waitTime = backoff(attempt);
-				log(`[REDSHIFT] Retry attempt ${attempt + 1}: waiting for ${waitTime} ms before retrying...`);
-				await new Promise(resolve => setTimeout(resolve, waitTime));
-				attempt++;
-			} else {
-				throw error;
-			}
-		}
-	}
-
-	throw new Error(`Failed to insert data after ${MAX_RETRIES} attempts`);
 }
 
 

@@ -63,6 +63,7 @@ function validate(PARAMS = { ...process.env }) {
 		bigquery_service_account_private_key = "",
 		bigquery_keyfile = ""
 	} = PARAMS;
+	
 	// SNOWFLAKE
 	const {
 		snowflake_account = "",
@@ -77,8 +78,14 @@ function validate(PARAMS = { ...process.env }) {
 		snowflake_pipe = "",
 		snowflake_private_key = "",
 		snowflake_region = "",
-		snowflake_provider = ""
+		snowflake_provider = "",
+		snowflake_task = "",
 	} = PARAMS;
+
+	let {
+		snowflake_task_schedule = 3,
+	} = PARAMS;
+	
 	// REDSHIFT
 	const {
 		redshift_workgroup = "",
@@ -89,10 +96,12 @@ function validate(PARAMS = { ...process.env }) {
 		redshift_region = "",
 		redshift_schema_name = ""
 	} = PARAMS;
+	
 	// MIXPANEL
 	const {
 		mixpanel_token = ""
 	} = PARAMS;
+	
 	// GCS
 	const {
 		gcs_project = "",
@@ -101,6 +110,7 @@ function validate(PARAMS = { ...process.env }) {
 		gcs_service_account_private_key = "",
 		gcs_keyfile = ""
 	} = PARAMS;
+	
 	// S3
 	const {
 		s3_bucket = "",
@@ -108,6 +118,7 @@ function validate(PARAMS = { ...process.env }) {
 		s3_access_key_id = "",
 		s3_secret_access_key = ""
 	} = PARAMS;
+	
 	// AZURE BLOB STORAGE
 	const {
 		azure_account = "",
@@ -137,6 +148,18 @@ function validate(PARAMS = { ...process.env }) {
 		if (snowflake_pipe) {
 			if (!snowflake_private_key) errors.push(new Error('snowflake_private_key is required'));
 			if (!snowflake_region) errors.push(new Error('snowflake_region is required'));
+		}
+
+		if (snowflake_task) {
+			if (!snowflake_task_schedule) errors.push(new Error('snowflake_task_schedule is required'));
+			if (typeof snowflake_task_schedule !== 'number') {
+				try {
+					snowflake_task_schedule = parseInt(snowflake_task_schedule);
+				}
+				catch (e) {
+					errors.push(new Error('snowflake_task_schedule must be a number'));
+				}
+			}
 		}
 
 		// if (snowflake_pipe) {

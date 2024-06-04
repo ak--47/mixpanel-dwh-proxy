@@ -2,6 +2,7 @@
 const fetch = require('fetch-retry')(global.fetch);
 const log = require('../components/logger');
 
+
 const NODE_ENV = process.env.NODE_ENV || 'prod';
 const REGION = process.env.MIXPANEL_REGION || 'US';
 const BASE_URL = `https://api${REGION?.toUpperCase() === "EU" ? '-eu' : ''}.mixpanel.com`;

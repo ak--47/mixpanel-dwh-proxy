@@ -2,6 +2,8 @@
 //@ts-nocheck
 const { parseSDKData } = require('../components/transforms');
 const validate = require('../components/validate');
+const { sleep } = require('ak-tools');
+const { insertWithRetry } = require('../components/retries');
 
 describe('PARSING', () => {
 	console.error = jest.fn();
@@ -237,6 +239,81 @@ describe('VALIDATION', () => {
 
 
 
+});
+
+
+// Mock sleep function to avoid actual delay
+jest.mock("ak-tools", () => ({
+    sleep: jest.fn()
+}));
+
+describe('RETRIES', () => {
+    const mockFn = jest.fn();
+    const batch = [{ id: 1, name: 'Test' }];
+    const table = 'test_table';
+    const schema = { fields: [{ name: 'id', type: 'INTEGER' }, { name: 'name', type: 'STRING' }] };
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    test('first attempt success', async () => {
+        mockFn.mockResolvedValueOnce({ status: 'success' });
+
+        const result = await insertWithRetry(mockFn, batch, table, schema);
+
+        expect(result).toEqual({ status: 'success' });
+        expect(mockFn).toHaveBeenCalledTimes(1);
+    });
+
+    test('second attempt success', async () => {
+        mockFn
+            .mockRejectedValueOnce(new Error('TableLockedError'))
+            .mockResolvedValueOnce({ status: 'success' });
+
+        const result = await insertWithRetry(mockFn, batch, table, schema);
+
+        expect(result).toEqual({ status: 'success' });
+        expect(mockFn).toHaveBeenCalledTimes(2);
+        expect(sleep).toHaveBeenCalledTimes(1);
+    });
+
+    test('fail after max', async () => {
+        mockFn.mockRejectedValue(new Error('TableLockedError'));
+
+        await expect(insertWithRetry(mockFn, batch, table, schema))
+            .rejects
+            .toThrow('Failed to insert data after 5 attempts');
+        
+        expect(mockFn).toHaveBeenCalledTimes(5);
+        expect(sleep).toHaveBeenCalledTimes(5);
+    });
+
+    test('only retry retryable', async () => {
+        mockFn.mockRejectedValue(new Error('NonRetryableError'));
+
+        await expect(insertWithRetry(mockFn, batch, table, schema))
+            .rejects
+            .toThrow('NonRetryableError');
+        
+        expect(mockFn).toHaveBeenCalledTimes(1);
+        expect(sleep).not.toHaveBeenCalled();
+    });
+
+    test('HTTP coe retries', async () => {
+        const error = new Error('Internal server error');
+        error.statusCode = 500;
+
+        mockFn
+            .mockRejectedValueOnce(error)
+            .mockResolvedValueOnce({ status: 'success' });
+
+        const result = await insertWithRetry(mockFn, batch, table, schema);
+
+        expect(result).toEqual({ status: 'success' });
+        expect(mockFn).toHaveBeenCalledTimes(2);
+        expect(sleep).toHaveBeenCalledTimes(1);
+    });
 });
 
 afterAll(done => {

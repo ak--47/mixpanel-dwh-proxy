@@ -12,6 +12,7 @@ const { BigQuery } = require("@google-cloud/bigquery");
 const NODE_ENV = process.env.NODE_ENV || "prod";
 const u = require("ak-tools");
 const { schematizeForWarehouse } = require('../components/transforms.js');
+const { insertWithRetry } = require("../components/retries.js");
 const schemas = require("./bigquery-schemas.js");
 const log = require("../components/logger.js");
 if (NODE_ENV === 'test') {
@@ -78,7 +79,7 @@ async function main(data, type, tableNames) {
 	const table = client.dataset(bigquery_dataset).table(targetTable);
 
 	// @ts-ignore
-	const result = await insertData(data, table, getBigQuerySchema(type));
+	const result = await insertWithRetry(insertData, data, table, getBigQuerySchema(type));
 	const duration = Date.now() - startTime;
 	result.duration = duration;
 	return result;
@@ -237,7 +238,7 @@ async function waitForTableToBeReady(table, retries = 20, maxInsertAttempts = 20
 		try {
 			// Attempt a dummy insert that SHOULD fail, but not because 404
 			const dummyRecord = { [u.uid()]: u.uid() };
-			const dummyInserResult = await table.insert([dummyRecord]);
+			const dummyInsertResult = await table.insert([dummyRecord]);
 			log("[BIGQUERY] ...should never get here...");
 			return true; // If successful, return true immediately
 		} catch (error) {
