@@ -1,23 +1,26 @@
 
 # Mixpanel → DWH Proxy
 
-Mixpanel DWH Proxy sits in front of [your client-side Mixpanel code and Mixpanel's servers](https://docs.mixpanel.com/docs/tracking-methods/sdks/javascript#tracking-via-proxy). 
+Mixpanel DWH Proxy sits between your client-side mixpanel tracking code, mixpanel's servers, and your data warehouses and lakes: 
 
 ```mermaid
 flowchart TD
-    A[Client] -->B(Mixpanel SDK)
-    B --> C{MP → DWH Proxy}
-    C -->D[Mixpanel]
-    C -->E[S3]
-    C -->F[Snowflake]
-    C -->G[BigQuery]
+    A[Your Client] --> |"mixpanel.track()"| B(Mixpanel SDK)
+    B --> |  POST | C{MP → DWH Proxy}
+    C -->|/track | D[Mixpanel]
+    C -->|events.json |E[S3]
+    C -->| pipe |F[Snowflake]
+    C -->| stream |G[BigQuery]
 ```
+[Tracking with a proxy](https://docs.mixpanel.com/docs/tracking-methods/sdks/javascript#tracking-via-proxy) is an analytics implementation best practice; this particular proxy is supercharged to send your Mixpanel data to multiple destinations.
 
-In addition to sending analytics data to Mixpanel, this proxy can pipe the same analytics data to your data warehouse (DWH).
+Mixpanel → DWH Proxy is designed to be deployed in (cheap) serverless environments like Google Cloud Run, AWS Lambda, and Azure Functions. Examples deployment scripts are provided in the `/scripts` folder.
 
-It is designed to be deployed in (cheap) serverless environments like Google Cloud Run, AWS Lambda, and Azure Functions.
+In addition to federating data to multiple destinations, this proxy allows you to modify each record before it gets sent to Mixpanel or other destinations, providing a flexible solution for data processing. 
 
-This proxy allows you to modify each record before it gets sent to Mixpanel or other destinations, providing a flexible solution for data processing, and an out-of-the-box (free) way to bring your Mixpanel data into your data warehouse or data lake. This is a free alternative to Mixpanel's paid [Data Pipelines](https://mixpanel.com/docs/data-pipelines/) product.
+This is a free alternative to Mixpanel's paid [Data Pipelines](https://mixpanel.com/docs/data-pipelines/) product; this proxy does not sync backfilled data, perform GDPR deletions, in your data warehouse, or have any SLA. 
+
+## Demo
 
 ## Features
 - Supports multiple data warehouse destinations:
@@ -50,7 +53,7 @@ You only need to set the environment variables for the services you want to use.
 #### [ALL] Optional Environment Variables
 - `PORT`: The port the server will listen on (default: `8080`).
 - `FRONTEND_URL`: The URL of your frontend application (for CORS). Set to `none` to disable CORS.
-- `RUNTIME`: The runtime environment (`LOCAL`, `GCP`, `AWS`, `AZURE`).
+- `RUNTIME`: The (serverless) runtime environment (`LOCAL`, `GCP`, `AWS`, `AZURE`).
 - `EVENTS_TABLE_NAME`: The name of the events table (default: `events`).
 - `USERS_TABLE_NAME`: The name of the users table (default: `users`).
 - `GROUPS_TABLE_NAME`: The name of the groups table (default: `groups`).
@@ -78,11 +81,14 @@ note: application default credentials **can** be used for authentication.
 #### [SNOWFLAKE] Optional Environment Variables
 - `snowflake_stage`: Your Snowflake stage (optional).
 - `snowflake_pipe`: Your Snowflake pipe (optional).
+
+note: `snowflake_stage` and `snowflake_pipe` are required if you want to use the Snowflake stage (`COPY INTO`) and Snowpipe data loading features. They tend to have lower latency and scale better
+
+if you want to use Snowpipe, you will need to provide the following additional environment variables:
 - `snowflake_private_key`: Your Snowflake private key (required for Snowpipe).
 - `snowflake_region`: Your Snowflake region  (required for Snowpipe).
 - `snowflake_provider`: Your Snowflake provider  (required for Snowpipe).
 
-note: `snowflake_stage` and `snowflake_pipe` are required if you want to use the Snowflake stage (`COPY INTO`) and Snowpipe data loading features. They tend to have lower latency and scale better
 
 #### [REDSHIFT] Required Environment Variables
 - `redshift_workgroup`: Your Redshift workgroup.
@@ -92,6 +98,8 @@ note: `snowflake_stage` and `snowflake_pipe` are required if you want to use the
 - `redshift_session_token`: Your Redshift session token (optional).
 - `redshift_region`: Your Redshift region.
 - `redshift_schema_name`: Your Redshift schema name.
+
+note: redshift has a 100kb per request limit, using a smaller batch size is recommended.
 
 #### [GCS] Required Environment Variables
 - `gcs_project`: Your GCS project ID.
@@ -115,6 +123,8 @@ note: application default credentials **can** be used for authentication.
 - `azure_connection_string`: Your Azure connection string (optional).
 
 ## 🚀 Deployment
+
+#### Choose a `RUNTIME`:
 To deploy the Mixpanel DWH Proxy, you can use a serverless platform like Google Cloud Run, AWS Lambda, or Azure Functions.
 
 We provide ready-to-use deployment scripts for popular serverless platforms in the `/scripts` folder.
@@ -128,7 +138,9 @@ We provide ready-to-use deployment scripts for popular serverless platforms in t
 
 There is also a [`Dockerfile`](https://github.com/ak--47/mixpanel-dwh-proxy/blob/main/Dockerfile) in the root directory for building a Docker image, which can be deployed to any container runtime.
 
-Once deployed, you will need to implement the following client-side configuration which tells the Mixpanel SDK to route it's data through the proxy:
+#### Configuring Mixpanel SDKs
+
+Once deployed, you will need to implement the following client-side configuration which tells the Mixpanel SDK to route it's data through the proxy. We do this by pointing the Mixpanel SDK to the `PROXY_URL` as it's `api_host`, we also set a `MIXPANEL_CUSTOM_LIB_URL` to use our proxy, and then we initialize the SDK like normal:
 
 ```javascript
 const PROXY_URL = `http://localhost:8080`; // the URL of your deployed proxy
