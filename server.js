@@ -51,8 +51,8 @@ const NODE_ENV = process.env.NODE_ENV || 'prod';
 if (NODE_ENV === 'dev') { log.verbose(true); log.cli(true); } // log everything
 if (NODE_ENV === 'prod') { log.verbose(false); log.cli(false); } //only logs structured logs + error
 const queue = require('./components/queue');
-const QUEUE_MAX = process.env.QUEUE_MAX || 0;
-const QUEUE_INTERVAL = process.env.QUEUE_INTERVAL || 60 * 15;
+const QUEUE_MAX = parseInt(process.env.QUEUE_MAX || "0") || 0;
+const QUEUE_INTERVAL = parseInt(process.env.QUEUE_INTERVAL || "900" ) || 900;
 
 log(`---- running in ${NODE_ENV} mode; version: ${version}; verbose: ${log.isVerbose()} cli: ${log.isCli()} queue_max: ${QUEUE_MAX} ----`);
 
