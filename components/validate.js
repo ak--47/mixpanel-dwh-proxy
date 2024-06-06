@@ -34,7 +34,7 @@ function validate(PARAMS = { ...process.env }) {
 		USERS_TABLE_NAME,
 		GROUPS_TABLE_NAME,
 		QUEUE_MAX = 0,
-		QUEUE_INTERVAL,
+		QUEUE_INTERVAL = 600,
 	} = PARAMS;
 
 	/** @type {Targets[]} */
@@ -137,7 +137,7 @@ function validate(PARAMS = { ...process.env }) {
 	// bigquery
 	if (TARGETS.includes('BIGQUERY')) {
 		if (!bigquery_project) errors.push(new Error('bigquery_project is required'));
-		if (!bigquery_dataset) errors.push(new Error('bigquery_dataset is required'));		
+		if (!bigquery_dataset) errors.push(new Error('bigquery_dataset is required'));
 	}
 
 	// snowflake

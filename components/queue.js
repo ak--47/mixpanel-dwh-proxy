@@ -1,6 +1,13 @@
 require('dotenv').config({ override: false });
+const NODE_ENV = process.env.NODE_ENV || "prod";
+const log = require("../components/logger.js");
+if (NODE_ENV === 'test') {
+	log.verbose(true);
+	log.cli(true);
+}
+
 const QUEUE_MAX = parseInt(process.env.QUEUE_MAX || "0", 10) || 0; // 0 = no queue
-const QUEUE_INTERVAL = parseInt(process.env.QUEUE_INTERVAL || `${60 * 15}`, 10) || 60 * 15; // ensure queue is flushed every 15 minutes
+const QUEUE_INTERVAL = parseInt(process.env.QUEUE_INTERVAL || `${60 * 10}`, 10) || 60 * 10; // ensure queue is flushed every 10 minutes
 const QUEUE_EVENTS = [];
 const QUEUE_USERS = [];
 const QUEUE_GROUPS = [];
@@ -11,19 +18,23 @@ async function flushQueue(queue, type, handleMixpanelRequest) {
 		const itemsToFlush = queue.splice(0, queue.length);
 		const dataToFlush = itemsToFlush.map(item => item.data);
 		const headers = itemsToFlush.length > 0 ? itemsToFlush[0].headers : {};
+		log(`[QUEUE] flushing ${dataToFlush.length} ${type} records`);
 		const result = await handleMixpanelRequest(type, { body: dataToFlush, headers }, { send: () => { } });
+		log(`[QUEUE] flushed ${dataToFlush.length} ${type} records`);
 		return result;
 	}
 }
 
 async function checkAndFlushQueues(handleMixpanelRequest, force = false) {
 	const currentTime = Date.now();
-	if (currentTime - lastFlushTime > QUEUE_INTERVAL * 1000 || force) {
+	if ((currentTime - lastFlushTime > (QUEUE_INTERVAL * 1000)) || force) {
+		log(`[QUEUE] cache expired flushing all queues`);
 		const result = await Promise.all([
 			flushQueue(QUEUE_EVENTS, 'track', handleMixpanelRequest),
 			flushQueue(QUEUE_USERS, 'engage', handleMixpanelRequest),
 			flushQueue(QUEUE_GROUPS, 'groups', handleMixpanelRequest),
 		]);
+		log(`[QUEUE] all queues flushed`);
 		lastFlushTime = currentTime;
 		return result;
 	} else {
@@ -43,14 +54,21 @@ function queue(type, handleMixpanelRequest) {
 				queue.push({ data: req.body, headers });
 			}
 
+			// If the queue is full, flush it immediately
 			if (queue.length >= QUEUE_MAX) {
+				log(`[QUEUE] ${type} queue is full`);
 				const flushResults = await flushQueue(queue, type, handleMixpanelRequest);
+				log(`[QUEUE] ${type} queue is empty (capacity-based flush)`);
 				if (flushResults) return res.status(200).header('Content-Type', 'application/json').send(flushResults);
-				//END HERE?!?!?
 			}
 
+			// Check if it's time to flush the queue
 			const results = await checkAndFlushQueues(handleMixpanelRequest);
-			if (!results) return res.status(200).header('Content-Type', 'application/json').send({ type: type.slice(0), status: 'queued' });
+			if (!results) {
+				log(`[QUEUE] ${type} queue is not full`);
+				return res.status(200).header('Content-Type', 'application/json').send({ type: type.slice(0), status: 'queued' });
+			}
+			log(`[QUEUE] ${type} queue is empty (time-based flush)`);
 			return res.status(200).header('Content-Type', 'application/json').send(results);
 		}
 		else {
