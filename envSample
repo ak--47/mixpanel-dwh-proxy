@@ -39,7 +39,7 @@ snowflake_provider=gcp
 bigquery_project=foo
 bigquery_dataset=bar
 # bigquery_keyfile=credentials.json # if you have a keyfile, you don't need to set the service account and private key
-bigquery_service_account=my-service@my-acct.iam.gserviceaccount.com
+_bigquery_service_account_email=my-service@my-acct.iam.gserviceaccount.com
 bigquery_service_account_private_key="-----BEGIN PRIVATE KEY-----\n ... \n-----END PRIVATE KEY-----\n"
 
 # gcs

@@ -235,17 +235,23 @@ export type AzureVars = {
 };
 
 export type MixpanelVars = {
-	mixpanel_token?: string;
-	mixpanel_region?: string;
-}
+  mixpanel_token?: string;
+  mixpanel_region?: string;
+};
 
-export type otherVars = {
-  DESTINATION: String;
+export type CommonVars = {
+  BATCH_SIZE: number;
+  MAX_RETRIES: number;
+  DESTINATIONS: string;
+  MAX_RETRIES: number;
+  FRONTEND_URL: string;
+  QUEUE_MAX: number;
+  QUEUE_INTERVAL: number;
   EVENTS_TABLE_NAME: string;
   USERS_TABLE_NAME: string;
   GROUPS_TABLE_NAME: string;
-  BATCH_SIZE: number;
-  MAX_RETRIES: number;
+  TIMEOUT: number;
+  [key: string]: string
 };
 
-export type EnvVars = BigQueryVars & SnowflakeVars & RedshiftVars & GCSVars & otherVars;
+export type EnvVars = BigQueryVars & SnowflakeVars & RedshiftVars & GCSVars & CommonVars;
