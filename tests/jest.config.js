@@ -20,6 +20,7 @@ else {
 const jestConfig = {
 	verbose: isDebugMode,
 	watch: false,
+	
 
 };
 

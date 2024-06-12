@@ -129,7 +129,7 @@ To deploy the Mixpanel DWH Proxy, you can use a serverless platform like Google 
 
 We provide ready-to-use deployment scripts for popular serverless platforms in the `/scripts` folder.
 
-- **Google Cloud Run:** [`scripts/gcp-run-deploy.sh`](https://github.com/ak--47/mixpanel-dwh-proxy/blob/main/scripts/gcp-run-deploy.sh)
+- **Google Cloud Run:** [`scripts/gcp-run-deploy.sh`](https://github.com/ak--47/mixpanel-dwh-proxy/blob/main/scripts/gcp-run-deploy.sh) or try [one click deploy](https://deploy.cloud.run?git_repo=https://github.com/ak--47/mixpanel-dwh-proxy)
 - **Google Cloud Functions:** [`scripts/gcp-func-deploy.sh`](https://github.com/ak--47/mixpanel-dwh-proxy/blob/main/scripts/gcp-func-deploy.sh)
 - **AWS Lambda:** [`scripts/aws-deploy.sh`](https://github.com/ak--47/mixpanel-dwh-proxy/blob/main/scripts/aws-deploy.sh)
 - **Azure Functions:** [`scripts/deploy-azure.sh`](https://github.com/ak--47/mixpanel-dwh-proxy/tree/main/scripts)
