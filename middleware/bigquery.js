@@ -252,7 +252,7 @@ async function waitForTableToBeReady(table, retries = 20, maxInsertAttempts = 20
 				return true;
 			} else {
 				log("[BIGQUERY] should never get here either");
-				debugger;
+				if (NODE_ENV === 'test') debugger;
 			}
 		}
 	}
@@ -286,7 +286,7 @@ async function insertData(batch, table, schema) {
 		const [response] = await table.insert(rows, options);
 		result = { status: "success", insertedRows: rows.length, failedRows: 0 };
 	} catch (error) {
-		debugger;
+		if (NODE_ENV === 'test') debugger;
 		if (error.name === "PartialFailureError") {
 			const failedRows = error.errors.length;
 			const insertedRows = batch.length - failedRows;

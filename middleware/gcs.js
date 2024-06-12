@@ -278,7 +278,7 @@ async function insertData(batch, prefix) {
 		const file = await client.bucket(gcs_bucket).file(fileName).save(dataToUpload, options);
 		result = { status: "success", insertedRows: batch.length, failedRows: 0 };
 	} catch (error) {
-		debugger;
+		if (NODE_ENV === 'test') debugger;
 		log(`[GCS] Error uploading data to Google Cloud Storage: ${error.message}`, error);
 		throw error;
 

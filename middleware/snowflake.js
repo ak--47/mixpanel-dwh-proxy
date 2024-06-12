@@ -297,7 +297,7 @@ async function createSnowflakeConnection() {
 		attemptConnect.connect((err, conn) => {
 			if (err) {
 				log('[SNOWFLAKE] Failed to connect:', err);
-				debugger;
+				if (NODE_ENV === 'test') debugger;
 				resolve(false);
 			} else {
 				log('[SNOWFLAKE] Successfully connected');
@@ -325,7 +325,9 @@ async function verifyOrCreateDatabase(databaseName = snowflake_database, schemaN
 	// @ts-ignore
 	if (checkResult?.message?.includes(`Database '${snowflake_database?.toUpperCase()}' does not exist or not authorized.`)) databaseExists = false;
 	else if (checkResult?.[0]?.COUNT > 0) databaseExists = true;
-	else debugger;
+	else {
+		if (NODE_ENV === 'test')  debugger;
+	} 
 
 
 	if (!databaseExists) {
@@ -462,7 +464,7 @@ async function checkIfTableExists(tableName) {
 		if (result.length === 0) return false;
 		if (result.length > 0) return true;
 	}
-	debugger;
+	if (NODE_ENV === 'test') debugger;
 	return false;
 
 }
@@ -878,7 +880,7 @@ function executeSQL(sql, binds, neverThrow = false) {
 						reject(new Error('TableLockedError')); // Signals a retry
 						return;
 					}
-					debugger;
+					if (NODE_ENV === 'test') debugger;
 					log(`[SNOWFLAKE] Failed executing SQL: ${err.message}`, err, options);
 					reject(err);
 				} else {
@@ -903,7 +905,7 @@ function prepareComplexRows(row, schema) {
 				if (typeof row[col.name] === 'string') row[col.name] = JSON.parse(row[col.name]);
 			}
 			catch (e) {
-				debugger;
+				if (NODE_ENV === 'test') debugger;
 				log(`[SNOWFLAKE] Error inserting batch ${col.name}; ${e.message}`, e);
 			}
 		}

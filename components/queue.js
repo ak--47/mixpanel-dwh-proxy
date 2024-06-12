@@ -25,7 +25,7 @@ async function flushQueue(queue, type, handleMixpanelRequest) {
 	}
 }
 
-async function checkAndFlushQueues(handleMixpanelRequest, force = false) {
+async function checkQueue(handleMixpanelRequest, force = false) {
 	const currentTime = Date.now();
 	if ((currentTime - lastFlushTime > (QUEUE_INTERVAL * 1000)) || force) {
 		log(`[QUEUE] cache expired flushing all queues`);
@@ -38,6 +38,7 @@ async function checkAndFlushQueues(handleMixpanelRequest, force = false) {
 		lastFlushTime = currentTime;
 		return result;
 	} else {
+		log(`[QUEUE] cache not expired, not flushing queues`);
 		return null;
 	}
 }
@@ -63,15 +64,9 @@ function queue(type, handleMixpanelRequest) {
 			}
 
 			// Check if it's time to flush the queue
-			const results = await checkAndFlushQueues(handleMixpanelRequest);
-			if (!results) {
-				log(`[QUEUE] ${type} queue is not full`);
-				return res.status(200).header('Content-Type', 'application/json').send({ type: type.slice(0), status: 'queued' });
-			}
-			log(`[QUEUE] ${type} queue is empty (time-based flush)`);
-			return res.status(200).header('Content-Type', 'application/json').send(results);
-		}
-		else {
+			await checkQueue(handleMixpanelRequest);
+			return res.status(200).header('Content-Type', 'application/json').send({ type: type, status: 'queued' });
+		} else {
 			next();
 		}
 	};
@@ -90,4 +85,17 @@ function getQueueByType(type) {
 	}
 }
 
-module.exports = queue;
+function queueMiddleware(handleMixpanelRequest) {
+	return async (req, res, next) => {
+		if (QUEUE_MAX > 0) {
+			await checkQueue(handleMixpanelRequest);
+		}
+		next();
+	};
+}
+
+module.exports = {
+	queue,
+	checkQueue,
+	queueMiddleware
+};

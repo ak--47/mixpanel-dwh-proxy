@@ -69,16 +69,34 @@ function parseSDKData(reqBody) {
 			}
 		}
 
-		if (typeof reqBody === 'object') {
-			if (Array.isArray(reqBody)) data = reqBody;
-			if (!Array.isArray(reqBody)) data = [reqBody];
+		else if (Array.isArray(reqBody)) {
+			if (reqBody.length === 0) data = [];
+			if (reqBody.length) {
+				if (reqBody[0]?.data) {
+					if (typeof reqBody[0].data === 'string') {
+						data = reqBody.map(r => JSON.parse(r.data));
+					}
+				}
+			}
+
+			else {
+				data = reqBody;
+			}
 		}
 
-		if (data && Array.isArray(data)) return data;
-		if (data && !Array.isArray(data)) return [data];
+		else if (!Array.isArray(reqBody) && typeof reqBody === 'object') {
+			data = [reqBody];
+		}
 
-		//should never get here
-		throw new Error('unable to parse incoming data (unknown format)', reqBody);
+		else {
+			//should never get here
+			throw new Error('unable to parse incoming data (unknown format)', reqBody);
+		}
+
+		if (!Array.isArray(data)) return [data];
+		if (Array.isArray(data)) return data;
+
+		throw new Error('data is not an array (unknown format)', reqBody);
 
 	}
 	catch (e) {

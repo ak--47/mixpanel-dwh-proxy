@@ -50,9 +50,9 @@ const PARAMS = validateEnv();
 const NODE_ENV = process.env.NODE_ENV || 'prod';
 if (NODE_ENV === 'dev') { log.verbose(true); log.cli(true); } // log everything
 if (NODE_ENV === 'prod') { log.verbose(false); log.cli(false); } //only logs structured logs + error
-const queue = require('./components/queue');
+const { queue, queueMiddleware } = require('./components/queue');
 const QUEUE_MAX = parseInt(process.env.QUEUE_MAX || "0") || 0;
-const QUEUE_INTERVAL = parseInt(process.env.QUEUE_INTERVAL || "900" ) || 900;
+const QUEUE_INTERVAL = parseInt(process.env.QUEUE_INTERVAL || "900") || 900;
 
 log(`---- running in ${NODE_ENV} mode; version: ${version}; verbose: ${log.isVerbose()} cli: ${log.isCli()} queue_max: ${QUEUE_MAX} ----`);
 
@@ -79,6 +79,9 @@ const MIXPANEL_TOKEN = process.env.MIXPANEL_TOKEN || "";
 setupCORS(app, FRONTEND_URL);
 proxyAssets(app, NODE_ENV);
 bodyParse(app);
+
+if (QUEUE_MAX > 0) app.use(queueMiddleware(handleMixpanelRequest));
+
 
 // ROUTES
 //? https://developer.mixpanel.com/reference/track-event
@@ -159,7 +162,7 @@ async function handleMixpanelRequest(type, req, res) {
 	// mutations / transforms
 	data.forEach(record => {
 		// include the IP address for geo-location
-		if (req?.query?.ip === '1' || QUEUE_MAX > 0) {
+		if (req?.query?.ip !== '0') {
 			if (type === 'track') record.properties.ip = endUserIp;
 			if (type === 'engage') record.$ip = endUserIp;
 			if (type === 'groups') record.$ip = endUserIp;
