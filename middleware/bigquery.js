@@ -36,7 +36,7 @@ let client;
 let bigquery_dataset;
 let bigquery_project;
 let bigquery_keyfile;
-let bigquery_service_account;
+let bigquery_service_account_email;
 let bigquery_service_account_private_key;
 let isClientReady;
 let isDatasetReady;
@@ -88,7 +88,7 @@ async function main(data, type, tableNames) {
 
 async function initializeBigQuery(tableNames) {
 	// ENV STUFF
-	({ bigquery_dataset = "", bigquery_project, bigquery_keyfile, bigquery_service_account, bigquery_service_account_private_key } =
+	({ bigquery_dataset = "", bigquery_project, bigquery_keyfile, bigquery_service_account_email, bigquery_service_account_private_key } =
 		process.env);
 	const { eventTable, userTable, groupTable } = tableNames;
 	if (!isClientReady) {
@@ -120,9 +120,9 @@ async function verifyBigQueryCredentials() {
 		auth.keyFile = bigquery_keyfile;
 	}
 	if (bigquery_project) auth.projectId = bigquery_project;
-	if (bigquery_service_account && bigquery_service_account_private_key) {
+	if (bigquery_service_account_email && bigquery_service_account_private_key) {
 		auth.credentials = {
-			client_email: bigquery_service_account,
+			client_email: bigquery_service_account_email,
 			private_key: bigquery_service_account_private_key,
 		};
 	}
@@ -252,7 +252,7 @@ async function waitForTableToBeReady(table, retries = 20, maxInsertAttempts = 20
 				return true;
 			} else {
 				log("[BIGQUERY] should never get here either");
-				debugger;
+				if (NODE_ENV === 'test') debugger;
 			}
 		}
 	}
@@ -286,7 +286,7 @@ async function insertData(batch, table, schema) {
 		const [response] = await table.insert(rows, options);
 		result = { status: "success", insertedRows: rows.length, failedRows: 0 };
 	} catch (error) {
-		debugger;
+		if (NODE_ENV === 'test') debugger;
 		if (error.name === "PartialFailureError") {
 			const failedRows = error.errors.length;
 			const insertedRows = batch.length - failedRows;

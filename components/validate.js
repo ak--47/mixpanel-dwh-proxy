@@ -4,12 +4,17 @@
 
 
 /** @typedef {import('../types').Targets} Targets */
+/** @typedef {import('../types').EnvVars} Vars */
 
 const defaultEventsTableName = 'events';
 const defaultUsersTableName = 'users';
 const defaultGroupsTableName = 'groups';
 const defaultWarehouse = 'MIXPANEL';
 
+/**
+ * @param  {Vars} PARAMS={...process.env}
+ */
+// @ts-ignore
 function validate(PARAMS = { ...process.env }) {
 
 	for (const key in PARAMS) {
@@ -28,6 +33,8 @@ function validate(PARAMS = { ...process.env }) {
 		EVENTS_TABLE_NAME,
 		USERS_TABLE_NAME,
 		GROUPS_TABLE_NAME,
+		QUEUE_MAX = 0,
+		QUEUE_INTERVAL = 600,
 	} = PARAMS;
 
 	/** @type {Targets[]} */
@@ -59,11 +66,11 @@ function validate(PARAMS = { ...process.env }) {
 	const {
 		bigquery_project = "",
 		bigquery_dataset = "",
-		bigquery_service_account = "",
+		bigquery_service_account_email = "",
 		bigquery_service_account_private_key = "",
 		bigquery_keyfile = ""
 	} = PARAMS;
-	
+
 	// SNOWFLAKE
 	const {
 		snowflake_account = "",
@@ -85,7 +92,7 @@ function validate(PARAMS = { ...process.env }) {
 	let {
 		snowflake_task_schedule = 3,
 	} = PARAMS;
-	
+
 	// REDSHIFT
 	const {
 		redshift_workgroup = "",
@@ -96,12 +103,12 @@ function validate(PARAMS = { ...process.env }) {
 		redshift_region = "",
 		redshift_schema_name = ""
 	} = PARAMS;
-	
+
 	// MIXPANEL
 	const {
 		mixpanel_token = ""
 	} = PARAMS;
-	
+
 	// GCS
 	const {
 		gcs_project = "",
@@ -110,7 +117,7 @@ function validate(PARAMS = { ...process.env }) {
 		gcs_service_account_private_key = "",
 		gcs_keyfile = ""
 	} = PARAMS;
-	
+
 	// S3
 	const {
 		s3_bucket = "",
@@ -118,7 +125,7 @@ function validate(PARAMS = { ...process.env }) {
 		s3_access_key_id = "",
 		s3_secret_access_key = ""
 	} = PARAMS;
-	
+
 	// AZURE BLOB STORAGE
 	const {
 		azure_account = "",
@@ -131,7 +138,6 @@ function validate(PARAMS = { ...process.env }) {
 	if (TARGETS.includes('BIGQUERY')) {
 		if (!bigquery_project) errors.push(new Error('bigquery_project is required'));
 		if (!bigquery_dataset) errors.push(new Error('bigquery_dataset is required'));
-		// if (!bigquery_keyfile && (!bigquery_service_account || !bigquery_service_account_private_key)) errors.push(new Error('bigquery_keyfile or bigquery_service_account + bigquery_service_account_private_key is required'));
 	}
 
 	// snowflake

@@ -6,6 +6,8 @@ DESTINATIONS=bigquery, snowflake, redshift, mixpanel, gcs, s3, azure
 # config
 MAX_RETRIES=10 # max retries for failed requests
 # FRONTEND_URL=https://aktunes.com # used for more secure CORS configuration; if unset, defaults to *
+# QUEUE_MAX = 3 # used for queueing events; if unset, no queueing
+# QUEUE_INTERVAL = 900 # used to ensure the queue flushes every x seconds; if unset, no queueing
 
 # tables + file prefix; for DWH, these are the table names, for lakes, these are the prefixes
 EVENTS_TABLE_NAME=my_events_table
@@ -30,7 +32,7 @@ snowflake_warehouse=MY_WH
 snowflake_role=MY_ROLE
 snowflake_access_url=https://my-account.snowflakecomputing.com
 # snowflake_stage=MY_STAGE # means we COPY INTO
-# snowflake_pipe=MY_PIPE #means we use a pipe to load data, this is the onyl reason you need keys + regions
+# snowflake_pipe=MY_PIPE #means we use a pipe to load data, this is the only reason you need keys + regions
 snowflake_private_key="-----BEGIN PRIVATE KEY-----\n ... \n-----END PRIVATE KEY-----\n"
 snowflake_region=us-central1
 snowflake_provider=gcp
@@ -39,7 +41,7 @@ snowflake_provider=gcp
 bigquery_project=foo
 bigquery_dataset=bar
 # bigquery_keyfile=credentials.json # if you have a keyfile, you don't need to set the service account and private key
-bigquery_service_account=my-service@my-acct.iam.gserviceaccount.com
+_bigquery_service_account_email=my-service@my-acct.iam.gserviceaccount.com
 bigquery_service_account_private_key="-----BEGIN PRIVATE KEY-----\n ... \n-----END PRIVATE KEY-----\n"
 
 # gcs

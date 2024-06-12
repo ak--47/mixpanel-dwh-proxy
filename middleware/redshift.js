@@ -273,7 +273,7 @@ async function executeSQL(sql, isBatch = false, altDb = "", altWrkgrp = "") {
 
 	} catch (error) {
 		log(`[REDSHIFT] Failed executing SQL:${error.message}`);
-		debugger;
+		if (NODE_ENV === 'test') debugger;
 		throw error;
 	}
 }

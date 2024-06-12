@@ -164,7 +164,7 @@ describe('VALIDATION', () => {
 			gcs_project: 'baz',
 			s3_bucket: 'qux',
 			bigquery_dataset: 'dataset',
-			bigquery_service_account: 'service_account',
+			bigquery_service_account_email: 'service_account',
 			bigquery_service_account_private_key: 'service_account_private_key',
 			gcs_bucket: 'bucket',
 			s3_region: 'region',

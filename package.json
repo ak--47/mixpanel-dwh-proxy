@@ -5,7 +5,7 @@
 	"main": "server.js",
 	"scripts": {
 		"start": "NODE_ENV=prod node server.js",
-		"dev": "npm run prune && NODE_ENV=dev nodemon --inspect --ignore tmp/ server.js",
+		"dev": "npm run prune && NODE_ENV=test nodemon --inspect --ignore tmp/ server.js",
 		"frontend": "npx serve ./demo/",
 		"test": "jest",
 		"stress": "npx artillery run --dotenv ./performance/.env --output ./performance/report.json ./performance/proxy-load-test.yml",
@@ -29,7 +29,7 @@
 		"analytics",
 		"events"
 	],
-	"author": "",
+	"author": "ak@mixpanel.com",
 	"license": "ISC",
 	"dependencies": {
 		"@aws-sdk/client-redshift-data": "^3.583.0",

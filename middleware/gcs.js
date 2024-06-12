@@ -7,7 +7,6 @@ GOOGLE CLOUD STORAGE MIDDLEWARE
 const { Storage } = require('@google-cloud/storage');
 
 const NODE_ENV = process.env.NODE_ENV || "prod";
-const u = require("ak-tools");
 const log = require("../components/logger.js");
 const path = require('path');
 const { uid, touch, rm, load } = require('ak-tools');
@@ -267,8 +266,8 @@ async function insertData(batch, prefix) {
 	log("[GCS] Starting data upload...");
 	if (!prefix) throw new Error("prefix name not provided.");
 	if (prefix?.endsWith("/")) prefix = prefix.slice(0, -1);
-	let result = { status: "born", dest: "gcs" };
-	const fileName = `${prefix}/${TODAY}_${uid(42)}.json.gz`;
+	let result = { status: "born" };
+	const fileName = `${prefix}/${TODAY}_${uid(42)}.json`;
 	const dataToUpload = batch.map(record => JSON.stringify(record)).join('\n');
 	/** @type {import('@google-cloud/storage').SaveOptions} */
 	const options = {
@@ -277,9 +276,9 @@ async function insertData(batch, prefix) {
 
 	try {
 		const file = await client.bucket(gcs_bucket).file(fileName).save(dataToUpload, options);
-		result = { status: "success", insertedRows: batch.length, failedRows: 0, dest: "gcs" };
+		result = { status: "success", insertedRows: batch.length, failedRows: 0 };
 	} catch (error) {
-		debugger;
+		if (NODE_ENV === 'test') debugger;
 		log(`[GCS] Error uploading data to Google Cloud Storage: ${error.message}`, error);
 		throw error;
 
