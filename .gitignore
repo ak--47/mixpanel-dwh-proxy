@@ -6,7 +6,7 @@ scripts/.aws-sam
 lambda
 samconfig.toml
 .DS_Store
-tmp/
+tmp/*
 !tmp/.gitkeep
 *.p8
 *.pub

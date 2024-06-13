@@ -77,11 +77,12 @@ function parseSDKData(reqBody) {
 						data = reqBody.map(r => JSON.parse(r.data));
 					}
 				}
+				else {
+					data = reqBody;
+				}
 			}
 
-			else {
-				data = reqBody;
-			}
+			
 		}
 
 		else if (!Array.isArray(reqBody) && typeof reqBody === 'object') {
