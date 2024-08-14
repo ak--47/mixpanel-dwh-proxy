@@ -2,6 +2,10 @@
 // by ak@mixpanel.com
 
 
+// todos: put function name in exports...
+// todos: temp folders were a problem
+// todos: env vars are a PITA
+
 // TYPES
 /** @typedef {import('./types').Runtimes} Runtimes */
 /** @typedef {import('./types').Targets} Targets */
@@ -102,7 +106,7 @@ if (RUNTIME === 'CLOUD_RUN') RUNTIME = 'LOCAL';
 switch (RUNTIME) {
 	case 'GCP':
 		const { http } = require('@google-cloud/functions-framework');
-		http('mixpanel_proxy', app);
+		http('start', app);
 		module.exports = app;
 		break;
 	case 'AWS':

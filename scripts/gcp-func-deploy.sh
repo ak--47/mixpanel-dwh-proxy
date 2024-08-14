@@ -10,7 +10,7 @@ gcloud functions deploy mixpanel_proxy \
   --runtime nodejs20 \
   --trigger-http \
   --allow-unauthenticated \
-  --entry-point mixpanel_proxy \
+  --entry-point start \
   --source . \
   --set-env-vars FRONTEND_URL=none,NODE_ENV=prod,REGION=US,RUNTIME='cloud_functions'
 

@@ -4,12 +4,12 @@
 source .env
 
 gcloud config set run/region us-central1
-# docker build -t express-proxy .
-docker buildx build --platform linux/amd64 -t express-proxy .
-docker tag express-proxy gcr.io/mixpanel-gtm-training/express-proxy
-docker push gcr.io/mixpanel-gtm-training/express-proxy
-gcloud run deploy express-proxy \
-  --image gcr.io/mixpanel-gtm-training/express-proxy \
+# docker build -t mixpanel-proxy .
+docker buildx build --platform linux/amd64 -t mixpanel-proxy .
+docker tag mixpanel-proxy gcr.io/mixpanel-gtm-training/mixpanel-proxy
+docker push gcr.io/mixpanel-gtm-training/mixpanel-proxy
+gcloud run deploy mixpanel-proxy \
+  --image gcr.io/mixpanel-gtm-training/mixpanel-proxy \
   --platform managed \
   --project mixpanel-gtm-training \
   --allow-unauthenticated \
