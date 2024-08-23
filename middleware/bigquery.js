@@ -4,6 +4,8 @@ BIGQUERY MIDDLEWARE
 ----
 */
 
+//todo: pubsub fallback
+
 const { BigQuery } = require("@google-cloud/bigquery");
 /** @typedef { import('../types.js').BigQueryTypes } BQTypes */
 /** @typedef {import('@google-cloud/bigquery').BigQuery} BQClient */
