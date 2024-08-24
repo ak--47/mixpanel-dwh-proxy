@@ -19,7 +19,8 @@ const mixpanel = require('../middleware/mixpanel');
 const gcs = require('../middleware/gcs');
 const s3 = require('../middleware/s3');
 const azure = require('../middleware/azure');
-const middleware = { bigquery, snowflake, redshift, mixpanel, gcs, s3, azure };
+const pubsub = require('../middleware/pubsub');
+const middleware = { bigquery, snowflake, redshift, mixpanel, gcs, s3, azure, pubsub };
 
 
 const timeout = 60000;
@@ -194,7 +195,6 @@ describe('GCS', () => {
 	}, timeout);
 });
 
-
 describe('S3', () => {
 
 	test('s3: events', async () => {
@@ -247,4 +247,28 @@ describe('Azure', () => {
 		expect(insertedRows).toBe(1);
 		expect(status).toBe('success');
 	}, timeout);
+});
+
+describe('PubSub', () => {
+
+    test('pubsub: events', async () => {
+        const result = await pubsub(e, 'track', tableNames);
+        const {  insertedRows, status } = result;
+        expect(insertedRows).toBe(1);
+        expect(status).toBe('success');
+    }, timeout);
+
+    test('pubsub: users', async () => {
+        const result = await pubsub(u, 'engage', tableNames);
+        const {  insertedRows, status } = result;
+        expect(insertedRows).toBe(1);
+        expect(status).toBe('success');
+    }, timeout);
+
+    test('pubsub: groups', async () => {
+        const result = await pubsub(g, 'groups', tableNames);
+        const {  insertedRows, status } = result;
+        expect(insertedRows).toBe(1);
+        expect(status).toBe('success');
+    }, timeout);
 });

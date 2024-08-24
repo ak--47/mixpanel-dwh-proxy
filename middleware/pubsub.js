@@ -37,6 +37,8 @@ let pubsub_service_account_email;
 let pubsub_service_account_private_key;
 let isClientReady;
 let areTopicsReady;
+let pubsub_good_topic;
+let pubsub_bad_topic;
 
 /**
  * Main function to handle Pub/Sub message publishing
@@ -70,6 +72,8 @@ async function main(data, type, topicNames) {
 			throw new Error("Invalid Record Type");
 	}
 
+	if (pubsub_good_topic) targetTopic = pubsub_good_topic;
+
 	// @ts-ignore
 	const result = await insertWithRetry(publishMessage, data, targetTopic);
 	const duration = Date.now() - startTime;
@@ -80,9 +84,18 @@ async function main(data, type, topicNames) {
 
 async function initializePubSub(topicNames) {
 	// ENV STUFF
-	({ pubsub_project, pubsub_keyfile, pubsub_service_account_email, pubsub_service_account_private_key } =
-		process.env);
+	({
+		pubsub_project,
+		pubsub_keyfile,
+		pubsub_service_account_email,
+		pubsub_service_account_private_key,
+		pubsub_good_topic,
+		pubsub_bad_topic
+	} = process.env
+	);
 	const { eventTable: eventTopic, userTable: userTopic, groupTable: groupTopic } = topicNames;
+
+	if (!pubsub_project) throw new Error("Pub/Sub project ID not set.");
 
 	if (!isClientReady) {
 		isClientReady = await verifyPubSubCredentials();
@@ -90,7 +103,14 @@ async function initializePubSub(topicNames) {
 	}
 
 	if (!areTopicsReady) {
-		const topicCheckResults = await verifyOrCreateTopics([eventTopic, userTopic, groupTopic]);
+		const topics = [];
+		if (eventTopic) topics.push(eventTopic);
+		if (userTopic) topics.push(userTopic);
+		if (groupTopic) topics.push(groupTopic);
+		if (pubsub_good_topic) topics.push(pubsub_good_topic);
+		if (pubsub_bad_topic) topics.push(pubsub_bad_topic);
+		if (topics.length === 0) throw new Error("No topics specified.");
+		const topicCheckResults = await verifyOrCreateTopics(topics);
 		areTopicsReady = topicCheckResults.every(result => result);
 		if (!areTopicsReady) throw new Error("Topic verification or creation failed.");
 	}
@@ -175,7 +195,7 @@ async function publishMessage(message, topicName) {
 	try {
 		const dataBuffer = Buffer.from(JSON.stringify(message));
 		const messageId = await topic.publishMessage({ data: dataBuffer });
-		result = { status: "success", messageId };
+		result = { status: "success", messageId, insertedRows: message.length };
 	} catch (error) {
 		if (NODE_ENV === 'test') debugger;
 

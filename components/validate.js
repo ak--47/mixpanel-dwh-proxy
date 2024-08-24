@@ -134,10 +134,25 @@ function validate(PARAMS = { ...process.env }) {
 		azure_connection_string = ""
 	} = PARAMS;
 
+	// PUBSUB
+	const {
+		pubsub_project = "",
+		pubsub_keyfile = "",
+		pubsub_service_account_email = "",
+		pubsub_service_account_private_key = "",
+		pubsub_good_topic = "",
+		pubsub_bad_topic = "",
+	} = PARAMS;
+
 	// bigquery
 	if (TARGETS.includes('BIGQUERY')) {
 		if (!bigquery_project) errors.push(new Error('bigquery_project is required'));
 		if (!bigquery_dataset) errors.push(new Error('bigquery_dataset is required'));
+	}
+
+	// pubsub
+	if (TARGETS.includes('PUBSUB')) {
+		if (!pubsub_project) errors.push(new Error('pubsub_project is required'));
 	}
 
 	// snowflake
