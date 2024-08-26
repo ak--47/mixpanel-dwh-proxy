@@ -4,14 +4,10 @@ PUBSUB MIDDLEWARE
 ----
 */
 
-//todo: testing + types
-
 const { PubSub } = require("@google-cloud/pubsub");
 /** @typedef {import('@google-cloud/pubsub').PubSub} PubSubClient */
 
 const NODE_ENV = process.env.NODE_ENV || "prod";
-const u = require("ak-tools");
-// const { schematizeForWarehouse } = require('../components/transforms.js');
 const { insertWithRetry } = require("../components/retries.js");
 const log = require("../components/logger.js");
 
@@ -24,8 +20,14 @@ if (NODE_ENV === 'test') {
 /** @typedef {import('../types').Entities} Entities */
 /** @typedef {import('../types').Endpoints} Endpoints */
 /** @typedef {import('../types').TableNames} TopicNames */
-/** @typedef {import('../types').PubSubMessage} PubSubMessage */
-/** @typedef {import('../types').PublishResult} PublishResult */
+/** @typedef {Object} PubSubMessage */
+
+/** 
+ * @typedef {Object} PublishResult 
+ * @property {string} [status]
+ * @property {string} [messageId]
+ * @property {number} [timestamp]
+ */
 
 // these vars should be cached and only run once when the server starts
 /** @type {PubSubClient} */
@@ -232,5 +234,6 @@ async function dropTopics(topicNames) {
 
 main.drop = dropTopics;
 main.init = initializePubSub;
+main.publish = publishMessage;
 
 module.exports = main;

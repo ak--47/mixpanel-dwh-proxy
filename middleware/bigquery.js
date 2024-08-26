@@ -10,6 +10,7 @@ const { BigQuery } = require("@google-cloud/bigquery");
 /** @typedef { import('../types.js').BigQueryTypes } BQTypes */
 /** @typedef {import('@google-cloud/bigquery').BigQuery} BQClient */
 
+const pubsub = require("./pubsub.js");
 
 const NODE_ENV = process.env.NODE_ENV || "prod";
 const u = require("ak-tools");
@@ -43,6 +44,8 @@ let bigquery_service_account_private_key;
 let isClientReady;
 let isDatasetReady;
 let areTablesReady;
+let isPubSubReady;
+let pubsub_bad_topic;
 
 
 
@@ -90,8 +93,15 @@ async function main(data, type, tableNames) {
 
 async function initializeBigQuery(tableNames) {
 	// ENV STUFF
-	({ bigquery_dataset = "", bigquery_project, bigquery_keyfile, bigquery_service_account_email, bigquery_service_account_private_key } =
-		process.env);
+	({
+		bigquery_dataset = "",
+		bigquery_project,
+		bigquery_keyfile,
+		bigquery_service_account_email,
+		bigquery_service_account_private_key,
+		pubsub_bad_topic = ""
+
+	} = process.env);
 	const { eventTable, userTable, groupTable } = tableNames;
 	if (!isClientReady) {
 		isClientReady = await verifyBigQueryCredentials();
@@ -107,6 +117,15 @@ async function initializeBigQuery(tableNames) {
 		const tableCheckResults = await verifyOrCreateTables([["track", eventTable], ["user", userTable], ["group", groupTable]]);
 		areTablesReady = tableCheckResults.every(result => result);
 		if (!areTablesReady) throw new Error("Table verification or creation failed.");
+	}
+
+	const ready = [isClientReady, isDatasetReady, areTablesReady];
+
+	// ! PUBSUB FALLBACK INITIALIZATION
+	if (pubsub_bad_topic) {
+		const pubsubInit = await pubsub.init(pubsub_bad_topic);
+		isPubSubReady = true;
+		ready.push(isPubSubReady);
 	}
 
 	return [isClientReady, isDatasetReady, areTablesReady];
@@ -305,7 +324,21 @@ async function insertData(batch, table, schema) {
 		}
 
 		else {
-			throw error;
+			if (pubsub_bad_topic) {
+				const message = {
+					table: table.id,
+					error: error.message,
+					data: batch,
+					schema: schema,
+				};
+				const pubsubResult = await pubsub.publish(message, pubsub_bad_topic);
+				log(`[BIGQUERY] insert error; published to topic ${pubsub_bad_topic}; message id: ${pubsubResult?.messageId}`);
+			}
+
+			else {
+				throw error;
+			}
+			
 		}
 
 
