@@ -321,6 +321,16 @@ async function insertData(batch, table, schema) {
 
 			};
 			log(`[BIGQUERY] Partial failure`);
+			if (pubsub_bad_topic) {
+				const message = {
+					table: table.id,
+					error: error.name,
+					data: error.errors,
+					schema: schema,
+				};
+				const pubsubResult = await pubsub.publish(message, pubsub_bad_topic);
+				log(`[BIGQUERY] insert error; published to topic ${pubsub_bad_topic}; message id: ${pubsubResult?.messageId}`);
+			}
 		}
 
 		else {
