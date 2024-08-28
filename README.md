@@ -68,6 +68,23 @@ You only need to set the environment variables for the services you want to use.
 
 note: application default credentials **can** be used for authentication.
 
+##### optional bigquery environment variables
+- `pubsub_bad_topic`: if exists, any transient failures or failed inserts will be published on this topic.
+
+### [PUBSUB] Required Environment Variables
+- `pubsub_project`: Your PubSub project ID.
+- `pubsub_service_account_email`: Your PubSub service account email.
+- `pubsub_service_account_private_key`: Your PubSub service account private key.
+- `pubsub_keyfile`: Path to your PubSub keyfile.
+
+note: application default credentials **can** be used for authentication.
+
+#### optional pubsub environment variables
+- `pubsub_good_topic`: if exists, will publish messages for ALL rows (events/users/groups) to this topic; if this variable is NOT set, messages will be published to to each topic `EVENTS_TABLE_NAME`, `USERS_TABLE_NAME`, `GROUPS_TABLE_NAME`  based on the type of incoming request
+- `pubsub_bad_topic`: if exists, any transient failures or failed inserts will be published on this topic.
+
+
+
 #### [SNOWFLAKE] Required Environment Variables
 - `snowflake_account`: Your Snowflake account name.
 - `snowflake_user`: Your Snowflake username.

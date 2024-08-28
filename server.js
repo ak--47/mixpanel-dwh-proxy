@@ -38,13 +38,14 @@ const log = require('./components/logger');
 
 // MIDDLEWARE
 const bigquery = require('./middleware/bigquery');
+const pubsub = require('./middleware/pubsub');
 const snowflake = require('./middleware/snowflake');
 const redshift = require('./middleware/redshift');
 const mixpanel = require('./middleware/mixpanel');
 const gcs = require('./middleware/gcs');
 const s3 = require('./middleware/s3');
 const azure = require('./middleware/azure');
-const middleware = { bigquery, snowflake, redshift, mixpanel, gcs, s3, azure };
+const middleware = { bigquery, pubsub, snowflake, redshift, mixpanel, gcs, s3, azure };
 const middlewareList = Object.keys(middleware).map(m => m.toLowerCase());
 
 

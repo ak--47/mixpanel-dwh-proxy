@@ -186,6 +186,15 @@ export type BigQueryVars = {
   bigquery_service_account_private_key: string;
 };
 
+export type PubSubVars = {
+  pubsub_project: string;
+  pubsub_keyfile?: string;
+  pubsub_service_account_email?: string;
+  pubsub_service_account_private_key?: string;
+  pubsub_good_topic?: string;
+  pubsub_bad_topic?: string;
+};
+
 export type SnowflakeVars = {
   snowflake_account: string;
   snowflake_user: string;
@@ -251,7 +260,7 @@ export type CommonVars = {
   USERS_TABLE_NAME: string;
   GROUPS_TABLE_NAME: string;
   TIMEOUT: number;
-  [key: string]: string
+  [key: string]: string;
 };
 
 export type EnvVars = BigQueryVars & SnowflakeVars & RedshiftVars & GCSVars & CommonVars;

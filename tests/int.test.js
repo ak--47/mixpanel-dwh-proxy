@@ -3,7 +3,7 @@ require('dotenv').config({ override: false });
 const validateEnv = require('../components/validate');
 const { flattenAndRenameForWarehouse } = require('../components/transforms');
 const isDebugMode = process.env.NODE_OPTIONS?.includes('--inspect') || process.env.NODE_OPTIONS?.includes('--inspect-brk');
-
+jest.setTimeout(isDebugMode ? 3600000 : 60000);
 
 /** @typedef {import('../types').EnvVars} Params */
 
@@ -19,7 +19,8 @@ const mixpanel = require('../middleware/mixpanel');
 const gcs = require('../middleware/gcs');
 const s3 = require('../middleware/s3');
 const azure = require('../middleware/azure');
-const middleware = { bigquery, snowflake, redshift, mixpanel, gcs, s3, azure };
+const pubsub = require('../middleware/pubsub');
+const middleware = { bigquery, snowflake, redshift, mixpanel, gcs, s3, azure, pubsub };
 
 
 const timeout = 60000;
@@ -80,6 +81,20 @@ describe('BigQuery', () => {
 		expect(insertedRows).toBe(1);
 		expect(status).toBe('success');
 	}, timeout);
+
+	test('bq: pub sub fallback', async () => {
+		const unnamed = { time: new Date().toISOString(), "token": "bar", "$insert_id": "baz", "$device_id": "qux", "hello": "world" };
+		process.env.pubsub_bad_topic = 'test-bad-topic';
+		// @ts-ignore
+		const result = await bigquery([...e, unnamed], 'track', tableNames);
+		const { failedRows, insertedRows, status } = result;
+		expect(failedRows).toBe(2);
+		expect(insertedRows).toBe(0);
+		expect(status).toBe('error');
+		
+		// @ts-ignore
+		expect(result?.type).toBe('partial failure');
+	});
 
 });
 
@@ -194,7 +209,6 @@ describe('GCS', () => {
 	}, timeout);
 });
 
-
 describe('S3', () => {
 
 	test('s3: events', async () => {
@@ -245,6 +259,30 @@ describe('Azure', () => {
 		const { failedRows, insertedRows, status } = result;
 		expect(failedRows).toBe(0);
 		expect(insertedRows).toBe(1);
+		expect(status).toBe('success');
+	}, timeout);
+});
+
+describe('PubSub', () => {
+
+	test('pubsub: events', async () => {
+		const result = await pubsub(e, 'track', tableNames);
+		const { messageId, status } = result;
+		expect(Number(messageId)).toBeGreaterThan(0);
+		expect(status).toBe('success');
+	}, timeout);
+
+	test('pubsub: users', async () => {
+		const result = await pubsub(u, 'engage', tableNames);
+		const { messageId, status } = result;
+		expect(Number(messageId)).toBeGreaterThan(0);
+		expect(status).toBe('success');
+	}, timeout);
+
+	test('pubsub: groups', async () => {
+		const result = await pubsub(g, 'groups', tableNames);
+		const { messageId, status } = result;
+		expect(Number(messageId)).toBeGreaterThan(0);
 		expect(status).toBe('success');
 	}, timeout);
 });
