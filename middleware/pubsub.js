@@ -41,6 +41,7 @@ let isClientReady;
 let areTopicsReady;
 let pubsub_good_topic;
 let pubsub_bad_topic;
+let bigquery_project;
 
 /**
  * Main function to handle Pub/Sub message publishing
@@ -92,11 +93,15 @@ async function initializePubSub(topicNames) {
 		pubsub_service_account_email,
 		pubsub_service_account_private_key,
 		pubsub_good_topic,
-		pubsub_bad_topic
+		pubsub_bad_topic,
+		bigquery_project,
 	} = process.env
 	);
 	const { eventTable: eventTopic, userTable: userTopic, groupTable: groupTopic } = topicNames;
 
+	// if pubsub_project is not set, use bigquery_project (if set)
+	if (!pubsub_project && bigquery_project) pubsub_project = bigquery_project;
+	
 	if (!pubsub_project) throw new Error("Pub/Sub project ID not set.");
 
 	if (!isClientReady) {

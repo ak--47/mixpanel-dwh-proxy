@@ -325,7 +325,9 @@ async function insertData(batch, table, schema) {
 				const message = {
 					table: table.id,
 					error: error.name,
-					data: error.errors,
+					kind: error.response?.kind,
+					data: batch,
+					details: error.errors,
 					schema: schema,
 				};
 				const pubsubResult = await pubsub.publish(message, pubsub_bad_topic);

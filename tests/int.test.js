@@ -3,7 +3,7 @@ require('dotenv').config({ override: false });
 const validateEnv = require('../components/validate');
 const { flattenAndRenameForWarehouse } = require('../components/transforms');
 const isDebugMode = process.env.NODE_OPTIONS?.includes('--inspect') || process.env.NODE_OPTIONS?.includes('--inspect-brk');
-
+jest.setTimeout(isDebugMode ? 3600000 : 60000);
 
 /** @typedef {import('../types').EnvVars} Params */
 
@@ -81,6 +81,20 @@ describe('BigQuery', () => {
 		expect(insertedRows).toBe(1);
 		expect(status).toBe('success');
 	}, timeout);
+
+	test('bq: pub sub fallback', async () => {
+		const unnamed = { time: new Date().toISOString(), "token": "bar", "$insert_id": "baz", "$device_id": "qux", "hello": "world" };
+		process.env.pubsub_bad_topic = 'test-bad-topic';
+		// @ts-ignore
+		const result = await bigquery([...e, unnamed], 'track', tableNames);
+		const { failedRows, insertedRows, status } = result;
+		expect(failedRows).toBe(2);
+		expect(insertedRows).toBe(0);
+		expect(status).toBe('error');
+		
+		// @ts-ignore
+		expect(result?.type).toBe('partial failure');
+	});
 
 });
 
@@ -251,24 +265,24 @@ describe('Azure', () => {
 
 describe('PubSub', () => {
 
-    test('pubsub: events', async () => {
-        const result = await pubsub(e, 'track', tableNames);
-        const {  insertedRows, status } = result;
-        expect(insertedRows).toBe(1);
-        expect(status).toBe('success');
-    }, timeout);
+	test('pubsub: events', async () => {
+		const result = await pubsub(e, 'track', tableNames);
+		const { messageId, status } = result;
+		expect(Number(messageId)).toBeGreaterThan(0);
+		expect(status).toBe('success');
+	}, timeout);
 
-    test('pubsub: users', async () => {
-        const result = await pubsub(u, 'engage', tableNames);
-        const {  insertedRows, status } = result;
-        expect(insertedRows).toBe(1);
-        expect(status).toBe('success');
-    }, timeout);
+	test('pubsub: users', async () => {
+		const result = await pubsub(u, 'engage', tableNames);
+		const { messageId, status } = result;
+		expect(Number(messageId)).toBeGreaterThan(0);
+		expect(status).toBe('success');
+	}, timeout);
 
-    test('pubsub: groups', async () => {
-        const result = await pubsub(g, 'groups', tableNames);
-        const {  insertedRows, status } = result;
-        expect(insertedRows).toBe(1);
-        expect(status).toBe('success');
-    }, timeout);
+	test('pubsub: groups', async () => {
+		const result = await pubsub(g, 'groups', tableNames);
+		const { messageId, status } = result;
+		expect(Number(messageId)).toBeGreaterThan(0);
+		expect(status).toBe('success');
+	}, timeout);
 });
