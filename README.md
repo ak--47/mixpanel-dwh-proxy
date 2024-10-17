@@ -22,6 +22,11 @@ This is a free alternative to Mixpanel's paid [Data Pipelines](https://mixpanel.
 
 ## Demo
 
+<a href="https://www.loom.com/share/ed1b525950c54dd88d50108958858e11?sid=42b92e64-b224-44a1-b32a-6007008de8cf" target="_blank">
+	<img src="https://aktunes.neocities.org/proxyVideo.png" />
+</a>
+
+
 ## Features
 - Supports multiple data warehouse destinations:
   - BigQuery
