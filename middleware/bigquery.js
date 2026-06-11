@@ -4,13 +4,11 @@ BIGQUERY MIDDLEWARE
 ----
 */
 
-//todo: pubsub fallback
-
 const { BigQuery } = require("@google-cloud/bigquery");
 /** @typedef { import('../types.js').BigQueryTypes } BQTypes */
 /** @typedef {import('@google-cloud/bigquery').BigQuery} BQClient */
 
-const pubsub = require("./pubsub.js");
+const deadLetter = require("../components/deadLetter.js");
 
 const NODE_ENV = process.env.NODE_ENV || "prod";
 const u = require("ak-tools");
@@ -44,8 +42,6 @@ let bigquery_service_account_private_key;
 let isClientReady;
 let isDatasetReady;
 let areTablesReady;
-let isPubSubReady;
-let pubsub_bad_topic;
 
 
 
@@ -99,8 +95,6 @@ async function initializeBigQuery(tableNames) {
 		bigquery_keyfile,
 		bigquery_service_account_email,
 		bigquery_service_account_private_key,
-		pubsub_bad_topic = ""
-
 	} = process.env);
 	const { eventTable, userTable, groupTable } = tableNames;
 	if (!isClientReady) {
@@ -117,17 +111,6 @@ async function initializeBigQuery(tableNames) {
 		const tableCheckResults = await verifyOrCreateTables([["track", eventTable], ["user", userTable], ["group", groupTable]]);
 		areTablesReady = tableCheckResults.every(result => result);
 		if (!areTablesReady) throw new Error("Table verification or creation failed.");
-	}
-
-	const ready = [isClientReady, isDatasetReady, areTablesReady];
-
-	// ! PUBSUB FALLBACK INITIALIZATION
-	if (pubsub_bad_topic) {
-		// @ts-ignore -- passes a string where init expects TableNames; works only because
-		// pubsub re-reads pubsub_bad_topic from process.env. removed when deadLetter lands.
-		const pubsubInit = await pubsub.init(pubsub_bad_topic);
-		isPubSubReady = true;
-		ready.push(isPubSubReady);
 	}
 
 	return [isClientReady, isDatasetReady, areTablesReady];
@@ -323,36 +306,30 @@ async function insertData(batch, table, schema) {
 
 			};
 			log(`[BIGQUERY] Partial failure`);
-			if (pubsub_bad_topic) {
-				const message = {
-					table: table.id,
-					error: error.name,
-					kind: error.response?.kind,
-					data: batch,
-					details: error.errors,
-					schema: schema,
-				};
-				const pubsubResult = await pubsub.publish(message, pubsub_bad_topic);
-				log(`[BIGQUERY] insert error; published to topic ${pubsub_bad_topic}; message id: ${pubsubResult?.messageId}`);
-			}
+			await deadLetter.send({
+				table: table.id,
+				error: error.name,
+				kind: error.response?.kind,
+				data: batch,
+				details: error.errors,
+				schema: schema,
+			});
 		}
 
 		else {
-			if (pubsub_bad_topic) {
-				const message = {
+			if (deadLetter.isConfigured()) {
+				await deadLetter.send({
 					table: table.id,
 					error: error.message,
 					data: batch,
 					schema: schema,
-				};
-				const pubsubResult = await pubsub.publish(message, pubsub_bad_topic);
-				log(`[BIGQUERY] insert error; published to topic ${pubsub_bad_topic}; message id: ${pubsubResult?.messageId}`);
+				});
 			}
 
 			else {
 				throw error;
 			}
-			
+
 		}
 
 
