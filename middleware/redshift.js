@@ -95,8 +95,7 @@ async function initializeRedshift(tableNames) {
 		MAX_RETRIES
 	} = process.env);
 
-	// HACK! todo: fix this
-	redshift_schema_name = "public";
+	if (!redshift_schema_name) redshift_schema_name = "public";
 
 	const { eventTable, userTable, groupTable } = tableNames;
 
