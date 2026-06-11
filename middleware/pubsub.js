@@ -22,11 +22,13 @@ if (NODE_ENV === 'test') {
 /** @typedef {import('../types').TableNames} TopicNames */
 /** @typedef {Object} PubSubMessage */
 
-/** 
- * @typedef {Object} PublishResult 
- * @property {string} [status]
+/**
+ * @typedef {Object} PublishResult
+ * @property {string} status
  * @property {string} [messageId]
  * @property {number} [timestamp]
+ * @property {number} [duration]
+ * @property {number} [insertedRows]
  */
 
 // these vars should be cached and only run once when the server starts
@@ -38,15 +40,18 @@ let pubsub_keyfile;
 let pubsub_service_account_email;
 let pubsub_service_account_private_key;
 let isClientReady;
-let areTopicsReady;
+// topics are ensured individually (not behind one boolean) because two callers
+// share this module's state: the destination fan-out (per-type topics) and the
+// dead-letter component (bad topic only) — neither may mask the other's topics
+const ensuredTopics = new Set();
 let pubsub_good_topic;
 let pubsub_bad_topic;
 let bigquery_project;
 
 /**
  * Main function to handle Pub/Sub message publishing
- * this function is called in the main server.js file
- * and will be called repeatedly as clients stream data in (from client-side SDKs)
+ * called via the fan-out in app.js, repeatedly,
+ * as clients stream data in (from client-side SDKs)
  * @param  {PubSubMessage} data
  * @param  {Endpoints} type
  * @param  {TopicNames} topicNames
@@ -109,20 +114,22 @@ async function initializePubSub(topicNames) {
 		if (!isClientReady) throw new Error("Pub/Sub credentials verification failed.");
 	}
 
-	if (!areTopicsReady) {
-		const topics = [];
-		if (eventTopic) topics.push(eventTopic);
-		if (userTopic) topics.push(userTopic);
-		if (groupTopic) topics.push(groupTopic);
-		if (pubsub_good_topic) topics.push(pubsub_good_topic);
-		if (pubsub_bad_topic) topics.push(pubsub_bad_topic);
-		if (topics.length === 0) throw new Error("No topics specified.");
-		const topicCheckResults = await verifyOrCreateTopics(topics);
-		areTopicsReady = topicCheckResults.every(result => result);
-		if (!areTopicsReady) throw new Error("Topic verification or creation failed.");
+	const topics = [];
+	if (eventTopic) topics.push(eventTopic);
+	if (userTopic) topics.push(userTopic);
+	if (groupTopic) topics.push(groupTopic);
+	if (pubsub_good_topic) topics.push(pubsub_good_topic);
+	if (pubsub_bad_topic) topics.push(pubsub_bad_topic);
+	if (topics.length === 0) throw new Error("No topics specified.");
+
+	const missingTopics = topics.filter(topic => !ensuredTopics.has(topic));
+	if (missingTopics.length > 0) {
+		const topicCheckResults = await verifyOrCreateTopics(missingTopics);
+		if (!topicCheckResults.every(result => result)) throw new Error("Topic verification or creation failed.");
+		for (const topic of missingTopics) ensuredTopics.add(topic);
 	}
 
-	return [isClientReady, areTopicsReady];
+	return [isClientReady, true];
 }
 
 async function verifyPubSubCredentials() {
@@ -202,10 +209,10 @@ async function publishMessage(message, topicName) {
 	try {
 		const dataBuffer = Buffer.from(JSON.stringify(message));
 		const messageId = await topic.publishMessage({ data: dataBuffer });
-		result = { status: "success", messageId, insertedRows: message.length };
+		// a message is either a batch (array of records) or a single report (dead-letter)
+		const insertedRows = Array.isArray(message) ? message.length : 1;
+		result = { status: "success", messageId, insertedRows };
 	} catch (error) {
-		if (NODE_ENV === 'test') debugger;
-
 		log(`[PUBSUB] Error publishing message to topic ${topicName}:`, error);
 		result = {
 			status: "error",
@@ -237,8 +244,19 @@ async function dropTopics(topicNames) {
 	return { numTopicsDropped: topicsToDrop.length, topicsDropped: topicsToDrop };
 }
 
-main.drop = dropTopics;
-main.init = initializePubSub;
-main.publish = publishMessage;
+/**
+ * the Destination contract (see types.d.ts → Destination):
+ * a callable send function with init/drop lifecycle methods and a
+ * requiredEnvVars declaration used for fail-fast validation at boot.
+ * this module is the reference implementation of the contract.
+ * (publish is an extra: the dead-letter component uses it directly)
+ * @type {import('../types').Destination & { publish: typeof publishMessage }}
+ */
+const destination = Object.assign(main, {
+	init: initializePubSub,
+	drop: dropTopics,
+	publish: publishMessage,
+	requiredEnvVars: ['pubsub_project'],
+});
 
-module.exports = main;
+module.exports = destination;

@@ -8,6 +8,7 @@ flowchart TD
     A[Your Client] --> |"mixpanel.track()"| B(Mixpanel SDK)
     B --> |  POST | C{MP → DWH Proxy}
     C -->|/track | D[Mixpanel]
+    C -->| publish |H[Pub/Sub]
     C -->|events.json |E[S3]
     C -->| pipe |F[Snowflake]
     C -->| stream |G[BigQuery]
@@ -18,7 +19,7 @@ Mixpanel → DWH Proxy is designed to be deployed in (cheap) serverless environm
 
 In addition to federating data to multiple destinations, this proxy allows you to modify each record before it gets sent to Mixpanel or other destinations, providing a flexible solution for data processing. 
 
-This is a free alternative to Mixpanel's paid [Data Pipelines](https://mixpanel.com/docs/data-pipelines/) product; this proxy does not sync backfilled data, perform GDPR deletions, in your data warehouse, or have any SLA. 
+This is a free alternative to Mixpanel's paid [Data Pipelines](https://mixpanel.com/docs/data-pipelines/) product; this proxy does not sync backfilled data, perform GDPR deletions in your data warehouse, or have any SLA. 
 
 ## Demo
 
@@ -28,16 +29,17 @@ This is a free alternative to Mixpanel's paid [Data Pipelines](https://mixpanel.
 
 
 ## Features
-- Supports multiple data warehouse destinations:
+- Supports multiple destinations — every one is optional, and any combination works:
+  - Mixpanel
+  - **Google Cloud Pub/Sub**
   - BigQuery
   - Snowflake
   - Redshift
-  - Mixpanel
   - Google Cloud Storage (GCS)
   - Amazon S3
   - Azure Blob Storage
 
-- Catches requests to Mixpanel's `/track`, `/engage`, and `/groups` endpoints, and can write those rows as tables in your data warehouse or files in your data lake.
+- Catches requests to Mixpanel's `/track`, `/engage`, and `/groups` endpoints, and can write those rows as tables in your data warehouse, files in your data lake, or messages on your queue.
 
 	- Schematizes standard record fields.
 
@@ -45,15 +47,31 @@ This is a free alternative to Mixpanel's paid [Data Pipelines](https://mixpanel.
 
 	- Further processing can be done with a `transform` function. (WIP)
 
+- Session replay (`/record`) and feature flags (`/flags`) are **always proxied through to Mixpanel**, regardless of which destinations you configure — the newest Mixpanel SDK features just work.
+
+## Mixpanel SDK → Pub/Sub
+
+Pub/Sub is a first-party destination: point the Mixpanel SDK at the proxy, set `DESTINATIONS=PUBSUB`, and every event, user profile update, and group update is published as a JSON message — ready for Dataflow, Cloud Functions, BigQuery subscriptions, or any consumer you like.
+
+```
+Mixpanel SDK ──POST /track──▶ proxy ──publish──▶ Pub/Sub topic ──▶ your consumers
+```
+
+- **Topics are auto-created** on boot if they don't exist.
+- By default, messages route to one topic per record type, named by `EVENTS_TABLE_NAME` / `USERS_TABLE_NAME` / `GROUPS_TABLE_NAME`.
+- Set `pubsub_good_topic` to route ALL records to a single topic instead.
+- Set `pubsub_bad_topic` to get a dead-letter topic: destinations (currently BigQuery) publish failed inserts there with full error context, so no row is silently dropped.
+- `pubsub_project` falls back to `bigquery_project` if unset.
+
 ## 🗝 Authentication
-Mixpanel DWH Proxy requires that you you to configure your pipeline by setting **environment variables**. Environment variables are case insensitive, and based on the service(s) you want to use.
+Mixpanel DWH Proxy requires you to configure your pipeline by setting **environment variables**. Environment variables are case insensitive, and based on the service(s) you want to use.
 
 You only need to set the environment variables for the services you want to use. For example, if you only want to send data to Mixpanel and BigQuery, you only need to set the REQUIRED environment variables for those services.
 
 
 #### [ALL] Required Environment Variables 
 
-- `DESTINATIONS`: Comma-separated list of destinations (`MIXPANEL`, `BIGQUERY`, `SNOWFLAKE`, `REDSHIFT`, `GCS`, `S3`, `AZURE`).
+- `DESTINATIONS`: Comma-separated list of destinations (`MIXPANEL`, `PUBSUB`, `BIGQUERY`, `SNOWFLAKE`, `REDSHIFT`, `GCS`, `S3`, `AZURE`). Defaults to `MIXPANEL`. The proxy **fails fast at boot** with one aggregated error listing every missing variable (and any unknown destination name), so a misconfigured deploy tells you the full fix immediately.
 
 #### [ALL] Optional Environment Variables
 - `PORT`: The port the server will listen on (default: `8080`).
@@ -67,26 +85,20 @@ You only need to set the environment variables for the services you want to use.
 #### [BIGQUERY] Required Environment Variables
 - `bigquery_project`: Your BigQuery project ID.
 - `bigquery_dataset`: Your BigQuery dataset ID.
-- `bigquery_service_account_email`: Your BigQuery service account email.
-- `bigquery_service_account_private_key`: Your BigQuery service account private key.
-- `bigquery_keyfile`: Path to your BigQuery keyfile.
 
-note: application default credentials **can** be used for authentication.
+note: application default credentials **can** be used for authentication; alternatively set `bigquery_keyfile` OR `bigquery_service_account_email` + `bigquery_service_account_private_key`.
 
 ##### optional bigquery environment variables
 - `pubsub_bad_topic`: if exists, any transient failures or failed inserts will be published on this topic.
 
 #### [PUBSUB] Required Environment Variables
-- `pubsub_project`: Your PubSub project ID.
-- `pubsub_service_account_email`: Your PubSub service account email.
-- `pubsub_service_account_private_key`: Your PubSub service account private key.
-- `pubsub_keyfile`: Path to your PubSub keyfile.
+- `pubsub_project`: Your Pub/Sub project ID (falls back to `bigquery_project` if unset).
 
-note: application default credentials **can** be used for authentication.
+note: application default credentials **can** be used for authentication; alternatively set `pubsub_keyfile` OR `pubsub_service_account_email` + `pubsub_service_account_private_key`.
 
 ##### optional pubsub environment variables
-- `pubsub_good_topic`: if exists, will publish messages for ALL rows (events/users/groups) to this topic; if this variable is NOT set, messages will be published to to each topic `EVENTS_TABLE_NAME`, `USERS_TABLE_NAME`, `GROUPS_TABLE_NAME`  based on the type of incoming request
-- `pubsub_bad_topic`: if exists, any transient failures or failed inserts will be published on this topic.
+- `pubsub_good_topic`: if set, messages for ALL rows (events/users/groups) publish to this one topic; if NOT set, messages publish to a topic per record type named `EVENTS_TABLE_NAME`, `USERS_TABLE_NAME`, `GROUPS_TABLE_NAME`. Topics are auto-created either way.
+- `pubsub_bad_topic`: if set, failed warehouse inserts are dead-lettered to this topic with full error context.
 
 
 
@@ -117,20 +129,16 @@ if you want to use Snowpipe, you will need to provide the following additional e
 - `redshift_database`: Your Redshift database name.
 - `redshift_access_key_id`: Your Redshift access key ID.
 - `redshift_secret_access_key`: Your Redshift secret access key.
-- `redshift_session_token`: Your Redshift session token (optional).
 - `redshift_region`: Your Redshift region.
-- `redshift_schema_name`: Your Redshift schema name.
+- `redshift_schema_name`: Your Redshift schema name (defaults to `public`).
 
-note: redshift has a 100kb per request limit, using a smaller batch size is recommended.
+note: `redshift_session_token` is optional (for temporary credentials). redshift has a 100kb per request limit, using a smaller batch size is recommended.
 
 #### [GCS] Required Environment Variables
 - `gcs_project`: Your GCS project ID.
 - `gcs_bucket`: Your GCS bucket name.
-- `gcs_service_account`: Your GCS service account email.
-- `gcs_service_account_private_key`: Your GCS service account private key.
-- `gcs_keyfile`: Path to your GCS keyfile.
 
-note: application default credentials **can** be used for authentication.
+note: application default credentials **can** be used for authentication; alternatively set `gcs_keyfile` OR `gcs_service_account` + `gcs_service_account_private_key`.
 
 #### [S3] Required Environment Variables
 - `s3_bucket`: Your S3 bucket name.
@@ -140,9 +148,8 @@ note: application default credentials **can** be used for authentication.
 
 #### [AZURE] Required Environment Variables
 - `azure_account`: Your Azure account name.
-- `azure_key`: Your Azure account key.
 - `azure_container`: Your Azure container name.
-- `azure_connection_string`: Your Azure connection string (optional).
+- `azure_key` OR `azure_connection_string`: an account key or a connection string (one of the two is required).
 
 ## 🚀 Deployment
 
@@ -176,12 +183,20 @@ mixpanel.init("my-proj-token", { api_host: PROXY_URL });
 mixpanel.track("test", { "foo": "bar" });
 ```
 
+Session replay (`record_sessions_percent`) and feature flags (`flags`) need no extra proxy configuration — the proxy forwards `/record` and `/flags` to Mixpanel automatically.
+
 ## Endpoints
 - `/track`: For tracking Mixpanel events.
 - `/engage`: For updating Mixpanel user profiles.
 - `/groups`: For updating Mixpanel groups.
+- `/record`: Session replay — always proxied through to Mixpanel.
+- `/flags`: Feature flags — always proxied through to Mixpanel.
+- `/lib.min.js`, `/lib.js`: Serves the Mixpanel JS SDK through the proxy (for `MIXPANEL_CUSTOM_LIB_URL`).
 - `/ping`: Health check endpoint.
+- `/decide`: Deprecated upstream; returns `299`.
 - `/drop`: Drops tables in the connected data warehouses (disabled in production).
+
+`/record`, `/flags`, and the `/lib*.js` routes are passthroughs: they stream the raw request straight to Mixpanel regardless of your `DESTINATIONS`, so session replay and feature flags work with zero configuration.
 
 ## Example Request
 To send a track event to Mixpanel and your configured DWHs, make a POST request to the `/track` endpoint:
@@ -204,36 +219,21 @@ You should receive a response with the status of the request, and all the destin
 ```json
 [
 	{
-		"name": "azure",
-		"result": { ...	}
+		"name": "mixpanel",
+		"result": { "status": "success", "insertedRows": 1, "failedRows": 0 }
 	},
 	{
-		"name": "mixpanel",
-		"result": { ...	}
+		"name": "pubsub",
+		"result": { "status": "success", "messageId": "19693698892865384", "insertedRows": 1, "duration": 63 }
 	},
 	{
 		"name": "bigquery",
-		"result": { ...	}
-	},
-	{
-		"name": "s3",
-		"result": { ...	}
-	},
-	{
-		"name": "gcs",
-		"result": { ...	}
-	},
-	{
-		"name": "snowflake",
-		"result": { ...	},
-					
-	},
-	{
-		"name": "redshift",
-		"result": { ...	}
+		"result": { "status": "success", "insertedRows": 1, "failedRows": 0 }
 	}
 ]
 ```
+
+(one entry per destination in your `DESTINATIONS` list)
 
 ## Logging
 Logging behavior is controlled by the `NODE_ENV` environment variable:
@@ -245,10 +245,14 @@ To run the proxy locally for development:
 
 1. Clone the repository.
 2. Run `npm install` to install dependencies.
-3. Set up the required environment variables in a `.env` file.
+3. Set up the required environment variables in a `.env` file (see `envSample`).
 4. Run `npm start` to start the server.
 5. Use `npm run dev` to start the server with nodemon.
-6. Use `npm run test` to run the test suite.
+
+### Testing
+- `npm test`: typecheck (`tsc` over the JSDoc types) + the offline test suites — no cloud credentials needed.
+- `npm run test:int`: per-destination integration tests against live clouds. Destinations without credentials in your `.env` are **skipped automatically**, so you can run this with any subset configured.
+- `npm run test:e2e`: boots the proxy and exercises it over HTTP; asserts one result per destination in your `DESTINATIONS`.
 
 ## Contributing
 Contributions are welcome! Please submit a pull request or open an issue to discuss any changes.

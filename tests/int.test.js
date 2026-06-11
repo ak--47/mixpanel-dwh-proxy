@@ -1,4 +1,3 @@
-const utils = require('ak-tools');
 require('dotenv').config({ override: false });
 const validateEnv = require('../components/validate');
 const { flattenAndRenameForWarehouse } = require('../components/transforms');
@@ -11,17 +10,15 @@ jest.setTimeout(isDebugMode ? 3600000 : 60000);
 // @ts-ignore
 const PARAMS = validateEnv();
 
-// MIDDLEWARE
-const bigquery = require('../middleware/bigquery');
-const snowflake = require('../middleware/snowflake');
-const redshift = require('../middleware/redshift');
-const mixpanel = require('../middleware/mixpanel');
-const gcs = require('../middleware/gcs');
-const s3 = require('../middleware/s3');
-const azure = require('../middleware/azure');
-const pubsub = require('../middleware/pubsub');
-const middleware = { bigquery, snowflake, redshift, mixpanel, gcs, s3, azure, pubsub };
+// MIDDLEWARE (see middleware/index.js registry)
+const registry = require('../middleware');
+const { bigquery, snowflake, redshift, mixpanel, gcs, s3, azure, pubsub } = registry;
 
+// a destination's tests only run when its required env vars are present;
+// otherwise the whole describe block is skipped (creds for S3/Redshift may not exist)
+// NOTE: validateEnv() above mirrors case-insensitive vars into process.env first
+const hasCreds = (name) => registry[name].requiredEnvVars.every((v) => !!process.env[v]);
+const describeIf = (condition) => (condition ? describe : describe.skip);
 
 const timeout = 60000;
 const { EVENTS_TABLE_NAME = "", USERS_TABLE_NAME = "", GROUPS_TABLE_NAME = "" } = PARAMS;
@@ -55,7 +52,7 @@ const u = flattenAndRenameForWarehouse(userData);
 const g = flattenAndRenameForWarehouse(groupData);
 
 
-describe('BigQuery', () => {
+describeIf(hasCreds('bigquery'))('BigQuery', () => {
 
 
 	test('bq: events', async () => {
@@ -91,14 +88,14 @@ describe('BigQuery', () => {
 		expect(failedRows).toBe(2);
 		expect(insertedRows).toBe(0);
 		expect(status).toBe('error');
-		
+
 		// @ts-ignore
 		expect(result?.type).toBe('partial failure');
 	});
 
 });
 
-describe('Snowflake', () => {
+describeIf(hasCreds('snowflake'))('Snowflake', () => {
 
 	test('snowflake: events', async () => {
 		const result = await snowflake(e, 'track', tableNames);
@@ -126,7 +123,7 @@ describe('Snowflake', () => {
 
 });
 
-describe('Redshift', () => {
+describeIf(hasCreds('redshift'))('Redshift', () => {
 
 	test('redshift: events', async () => {
 		const result = await redshift(e, 'track', tableNames);
@@ -154,7 +151,7 @@ describe('Redshift', () => {
 
 });
 
-describe('Mixpanel', () => {
+describeIf(hasCreds('mixpanel'))('Mixpanel', () => {
 
 	test('mixpanel: events', async () => {
 		const result = await mixpanel(eventData, 'track');
@@ -182,7 +179,7 @@ describe('Mixpanel', () => {
 });
 
 
-describe('GCS', () => {
+describeIf(hasCreds('gcs'))('GCS', () => {
 
 	test('gcs: events', async () => {
 		const result = await gcs(e, 'track', tableNames);
@@ -209,7 +206,7 @@ describe('GCS', () => {
 	}, timeout);
 });
 
-describe('S3', () => {
+describeIf(hasCreds('s3'))('S3', () => {
 
 	test('s3: events', async () => {
 		const result = await s3(e, 'track', tableNames);
@@ -236,7 +233,7 @@ describe('S3', () => {
 	}, timeout);
 });
 
-describe('Azure', () => {
+describeIf(hasCreds('azure'))('Azure', () => {
 
 	test('azure: events', async () => {
 		const result = await azure(e, 'track', tableNames);
@@ -263,7 +260,7 @@ describe('Azure', () => {
 	}, timeout);
 });
 
-describe('PubSub', () => {
+describeIf(hasCreds('pubsub'))('PubSub', () => {
 
 	test('pubsub: events', async () => {
 		const result = await pubsub(e, 'track', tableNames);

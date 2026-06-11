@@ -311,6 +311,11 @@ async function deleteAllFiles(tableNames) {
 	return { numFilesDeleted: deleteResults?.length };
 }
 
-main.drop = deleteAllFiles;
-main.init = initializeGoogleStorage;
-module.exports = main;
+/** @type {import('../types').Destination} */
+const destination = Object.assign(main, {
+	init: initializeGoogleStorage,
+	drop: deleteAllFiles,
+	requiredEnvVars: ['gcs_project', 'gcs_bucket'],
+});
+
+module.exports = destination;

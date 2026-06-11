@@ -1,0 +1,18 @@
+{
+	"compilerOptions": {
+		"checkJs": true,
+		"noEmit": true,
+		"target": "es2022",
+		"module": "commonjs",
+		"moduleResolution": "node",
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"maxNodeModuleJsDepth": 0,
+		"strict": false,
+		"noImplicitThis": true,
+		"alwaysStrict": true,
+		"types": ["node"]
+	},
+	"include": ["server.js", "app.js", "components/**/*.js", "middleware/**/*.js", "types.d.ts"],
+	"exclude": ["node_modules", "tests", "demo", "performance", "tmp", "scripts"]
+}

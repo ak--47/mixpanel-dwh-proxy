@@ -278,6 +278,24 @@ async function deleteAllFiles(tableNames) {
 
 }
 
-main.drop = deleteAllFiles;
-main.init = initializeAzureBlobStorage;
-module.exports = main;
+/**
+ * azure auth is either a connection string or an account key; requiredEnvVars
+ * can't express "one of", so the rule lives here
+ * @param {Record<string, string | number | undefined>} env
+ * @returns {string[]} error messages
+ */
+function validateEnv(env) {
+	const errors = [];
+	if (!env.azure_connection_string && !env.azure_key) errors.push('azure_key or azure_connection_string is required');
+	return errors;
+}
+
+/** @type {import('../types').Destination} */
+const destination = Object.assign(main, {
+	init: initializeAzureBlobStorage,
+	drop: deleteAllFiles,
+	requiredEnvVars: ['azure_account', 'azure_container'],
+	validateEnv,
+});
+
+module.exports = destination;

@@ -1093,6 +1093,41 @@ async function deleteAllFilesFromStage(stageName) {
 }
 
 
-main.drop = dropTables;
-main.init = initializeSnowflake;
-module.exports = main;
+/**
+ * conditional env rules beyond requiredEnvVars; called by validate.js at boot
+ * @param {Record<string, string | number | undefined>} env
+ * @returns {string[]} error messages
+ */
+function validateEnv(env) {
+	const errors = [];
+	if (env.snowflake_pipe && !env.snowflake_stage) errors.push('snowflake_stage is required to use pipelines');
+	if (env.snowflake_pipe) {
+		if (!env.snowflake_private_key) errors.push('snowflake_private_key is required');
+		if (!env.snowflake_region) errors.push('snowflake_region is required');
+	}
+	if (env.snowflake_task) {
+		const schedule = env.snowflake_task_schedule;
+		if (!schedule) errors.push('snowflake_task_schedule is required');
+		else if (isNaN(parseInt(String(schedule)))) errors.push('snowflake_task_schedule must be a number');
+	}
+	return errors;
+}
+
+/** @type {import('../types').Destination} */
+const destination = Object.assign(main, {
+	init: initializeSnowflake,
+	drop: dropTables,
+	requiredEnvVars: [
+		'snowflake_account',
+		'snowflake_user',
+		'snowflake_password',
+		'snowflake_database',
+		'snowflake_schema',
+		'snowflake_warehouse',
+		'snowflake_role',
+		'snowflake_access_url',
+	],
+	validateEnv,
+});
+
+module.exports = destination;

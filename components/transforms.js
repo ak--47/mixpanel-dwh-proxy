@@ -34,30 +34,40 @@ function parseSDKData(reqBody) {
 		let data;
 
 		if (typeof reqBody === 'string') {
-			if (reqBody.startsWith("[") || reqBody.startsWith("{")) {
-				if (reqBody.endsWith("]") || reqBody.endsWith("}")) {
-					// handling JSON
-					try {
-						data = JSON.parse(reqBody);
-					}
-					catch (e) {
-						// strangely not JSON
-						throw new Error('unable to parse incoming data (tried JSON)');
-					}
+			const trimmed = reqBody.trim();
+
+			if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+				// handling JSON
+				try {
+					data = JSON.parse(trimmed);
+				}
+				catch (e) {
+					// strangely not JSON
+					throw new Error('unable to parse incoming data (tried JSON)');
 				}
 			}
 
-			// handling multipart form data
+			// handling multipart form data / base64
 			else {
 				try {
-					data = JSON.parse(Buffer.from(reqBody, 'base64').toString('utf-8'));
+					data = JSON.parse(Buffer.from(trimmed, 'base64').toString('utf-8'));
 				}
 				catch (e) {
-					// handling sendBeacon
+					// handling sendBeacon: data=VALUE where VALUE may itself contain
+					// '=' chars (raw base64 padding), so only split on the FIRST '='
 					try {
-						const body = reqBody.split("=").splice(-1).pop();
+						const eqIndex = trimmed.indexOf('=');
+						if (eqIndex < 0) throw new Error('unable to parse incoming data (no delimiter)');
+						const body = trimmed.substring(eqIndex + 1);
 						if (!body) throw new Error('unable to parse incoming data (tried sendBeacon)');
-						data = JSON.parse(Buffer.from(decodeURIComponent(body), 'base64').toString('utf-8'));
+						const decoded = decodeURIComponent(body);
+
+						// VALUE is either URL-encoded JSON or URL-encoded base64
+						try {
+							data = JSON.parse(decoded);
+						} catch {
+							data = JSON.parse(Buffer.from(decoded, 'base64').toString('utf-8'));
+						}
 					}
 					catch (e) {
 						// we don't know what this is

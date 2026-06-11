@@ -311,6 +311,11 @@ async function streamToString(stream) {
 	});
 }
 
-main.drop = deleteAllFiles;
-main.init = initializeS3;
-module.exports = main;
+/** @type {import('../types').Destination} */
+const destination = Object.assign(main, {
+	init: initializeS3,
+	drop: deleteAllFiles,
+	requiredEnvVars: ['s3_bucket', 's3_region', 's3_access_key_id', 's3_secret_access_key'],
+});
+
+module.exports = destination;

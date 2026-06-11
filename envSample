@@ -1,7 +1,8 @@
 # Description: Configuration file for the Mixpanel Proxy
 
-# choose warehouses and lakes; comma separated. mixpanel is an optional destination
-DESTINATIONS=bigquery, snowflake, redshift, mixpanel, gcs, s3, azure
+# choose destinations; comma separated. all destinations are optional — any combination works
+# a destination is only active when listed here AND its required vars (below) are set
+DESTINATIONS=bigquery, snowflake, redshift, mixpanel, gcs, s3, azure, pubsub
 
 # config
 MAX_RETRIES=10 # max retries for failed requests
@@ -41,8 +42,16 @@ snowflake_provider=gcp
 bigquery_project=foo
 bigquery_dataset=bar
 # bigquery_keyfile=credentials.json # if you have a keyfile, you don't need to set the service account and private key
-_bigquery_service_account_email=my-service@my-acct.iam.gserviceaccount.com
+bigquery_service_account_email=my-service@my-acct.iam.gserviceaccount.com
 bigquery_service_account_private_key="-----BEGIN PRIVATE KEY-----\n ... \n-----END PRIVATE KEY-----\n"
+
+# pubsub (first-party destination: mixpanel SDK → pub/sub topics)
+pubsub_project=foo # falls back to bigquery_project if unset
+# pubsub_keyfile=credentials.json # if you have a keyfile, you don't need to set the service account and private key
+# pubsub_service_account_email=my-service@my-acct.iam.gserviceaccount.com
+# pubsub_service_account_private_key="-----BEGIN PRIVATE KEY-----\n ... \n-----END PRIVATE KEY-----\n"
+# pubsub_good_topic=my_topic # optional: route ALL events/users/groups to one topic (default: one topic per table name above)
+# pubsub_bad_topic=my_dlq # optional: dead-letter topic; bigquery publishes failed inserts here
 
 # gcs
 gcs_project=foo

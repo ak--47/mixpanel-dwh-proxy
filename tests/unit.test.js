@@ -30,6 +30,37 @@ describe('PARSING', () => {
 		expect(parseSDKData(input)).toEqual([{ key: 'value' }]);
 	});
 
+	test('sendBeacon with URL-encoded JSON (not base64)', () => {
+		const json = JSON.stringify([{ event: 'test', properties: { token: 'abc' } }]);
+		const input = `data=${encodeURIComponent(json)}`;
+		expect(parseSDKData(input)).toEqual([{ event: 'test', properties: { token: 'abc' } }]);
+	});
+
+	test('sendBeacon with base64 padding characters', () => {
+		const json = JSON.stringify({ k: 'xx' });
+		const base64 = Buffer.from(json).toString('base64');
+		expect(base64).toBe('eyJrIjoieHgifQ==');
+		const input = `data=${encodeURIComponent(base64)}`;
+		expect(parseSDKData(input)).toEqual([{ k: 'xx' }]);
+	});
+
+	test('sendBeacon with raw (unencoded) base64 padding', () => {
+		// some SDK paths send the base64 payload without URL-encoding it, so the
+		// trailing = padding chars appear literally; split('=') chokes on these
+		const input = 'data=eyJrIjoieHgifQ==';
+		expect(parseSDKData(input)).toEqual([{ k: 'xx' }]);
+	});
+
+	test('JSON with trailing whitespace', () => {
+		const input = '[{"event":"test"}]  \n';
+		expect(parseSDKData(input)).toEqual([{ event: 'test' }]);
+	});
+
+	test('JSON with leading whitespace', () => {
+		const input = '  {"key":"value"}  ';
+		expect(parseSDKData(input)).toEqual([{ key: 'value' }]);
+	});
+
 	test('unknown format', () => {
 		const input = 'definitely not jason';
 		expect(parseSDKData(input)).toEqual([]);
@@ -245,7 +276,35 @@ describe('VALIDATION', () => {
 
 	});
 
+	test('unknown destination throws', () => {
+		process.env = {
+			DESTINATIONS: 'BIGQUERY, FOOBAR',
+			bigquery_project: 'foo',
+			bigquery_dataset: 'bar'
+		};
 
+		expect(() => validate()).toThrow(/unknown destination: FOOBAR/i);
+	});
+
+	test('aggregates ALL missing vars in one error', () => {
+		process.env = {
+			DESTINATIONS: 'BIGQUERY'
+		};
+
+		// both missing vars must be reported at once, not just the first
+		expect(() => validate()).toThrow(/bigquery_project is required[\s\S]*bigquery_dataset is required/);
+	});
+
+	test('unlisted destinations are inert', () => {
+		process.env = {
+			DESTINATIONS: 'GCS',
+			gcs_project: 'foo',
+			gcs_bucket: 'bar'
+		};
+
+		// no snowflake/bigquery/etc vars set anywhere — must not throw
+		expect(() => validate()).not.toThrow();
+	});
 
 });
 
