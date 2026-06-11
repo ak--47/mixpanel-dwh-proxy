@@ -1,6 +1,10 @@
 /**
- * @fileoverview ensures that lib calls proxy through to the CDN
- * also provides forwarding for session replay via /record
+ * @fileoverview always-on passthrough routes to Mixpanel, regardless of DESTINATIONS:
+ * - /lib.min.js + /lib.js → CDN (so MIXPANEL_CUSTOM_LIB_URL can point here)
+ * - /record → session replay
+ * - /flags → feature flags
+ * these MUST be registered before the body parsers: the proxy streams the
+ * raw request through and a consumed body would break the upstream call
  */
 
 const { createProxyMiddleware } = require('http-proxy-middleware');
@@ -29,6 +33,13 @@ module.exports = function (app, environment = NODE_ENV, URL = BASE_URL) {
 		target: URL,
 		changeOrigin: true,
 		pathRewrite: { '^/record': '/record' },
+		logLevel: environment === "prod" ? "error" : "silent",
+	}));
+
+	app.use('/flags', createProxyMiddleware({
+		target: URL,
+		changeOrigin: true,
+		pathRewrite: { '^/flags': '/flags' },
 		logLevel: environment === "prod" ? "error" : "silent",
 	}));
 };
