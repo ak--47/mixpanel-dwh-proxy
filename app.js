@@ -3,7 +3,6 @@
 // by ak@mixpanel.com
 
 // TYPES
-/** @typedef {import('./types').Runtimes} Runtimes */
 /** @typedef {import('./types').Targets} Targets */
 /** @typedef {import('./types').Warehouse} Warehouse */
 /** @typedef {import('./types').Lake} Lake */
@@ -27,7 +26,7 @@ const setupCORS = require('./components/corsConfig');
 const passthrough = require('./components/passthrough');
 const validateEnv = require('./components/validate');
 const bodyParse = require('./components/bodyParse');
-const { parseSDKData, flattenAndRenameForWarehouse, schematizeForWarehouse } = require('./components/transforms');
+const { parseSDKData, flattenAndRenameForWarehouse } = require('./components/transforms');
 
 // LOGGING
 const log = require('./components/logger');
@@ -54,10 +53,6 @@ log(`---- running in ${NODE_ENV} mode; version: ${version}; verbose: ${log.isVer
 const DESTINATIONS = process.env.DESTINATIONS || "MIXPANEL";
 /** @type {Targets[]} */
 const TARGETS = DESTINATIONS.split(',').map(wh => wh.trim().toLowerCase()).filter(a => a).filter(supported);
-
-/** @type {Runtimes} */
-let RUNTIME = process.env.RUNTIME?.toUpperCase() || 'LOCAL';
-
 
 const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'events';
 const USERS_TABLE_NAME = process.env.USERS_TABLE_NAME || 'users';
@@ -176,7 +171,7 @@ async function handleMixpanelRequest(type, req, res) {
 	}
 
 	catch (error) {
-		if (RUNTIME === 'dev') console.error(error);
+		if (NODE_ENV === 'dev') console.error(error);
 		res.status(500).send(`An error occurred calling /${type}`);
 	}
 

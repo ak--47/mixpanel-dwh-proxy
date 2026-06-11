@@ -283,7 +283,7 @@ export type DestinationName =
   | "azure";
 
 export interface Destination {
-  /** send a batch; called per-request from the fan-out in server.js */
+  /** send a batch; called per-request from the fan-out in app.js */
   (data: IncomingData | FlatData, type: Endpoints, tableNames: TableNames): Promise<InsertResult>;
   /** idempotent; called fire-and-forget at boot and lazily on first send */
   init: (tableNames: TableNames) => Promise<unknown> | unknown;

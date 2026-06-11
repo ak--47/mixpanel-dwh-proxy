@@ -19,7 +19,7 @@ Mixpanel → DWH Proxy is designed to be deployed in (cheap) serverless environm
 
 In addition to federating data to multiple destinations, this proxy allows you to modify each record before it gets sent to Mixpanel or other destinations, providing a flexible solution for data processing. 
 
-This is a free alternative to Mixpanel's paid [Data Pipelines](https://mixpanel.com/docs/data-pipelines/) product; this proxy does not sync backfilled data, perform GDPR deletions, in your data warehouse, or have any SLA. 
+This is a free alternative to Mixpanel's paid [Data Pipelines](https://mixpanel.com/docs/data-pipelines/) product; this proxy does not sync backfilled data, perform GDPR deletions in your data warehouse, or have any SLA. 
 
 ## Demo
 
@@ -64,7 +64,7 @@ Mixpanel SDK ──POST /track──▶ proxy ──publish──▶ Pub/Sub top
 - `pubsub_project` falls back to `bigquery_project` if unset.
 
 ## 🗝 Authentication
-Mixpanel DWH Proxy requires that you you to configure your pipeline by setting **environment variables**. Environment variables are case insensitive, and based on the service(s) you want to use.
+Mixpanel DWH Proxy requires you to configure your pipeline by setting **environment variables**. Environment variables are case insensitive, and based on the service(s) you want to use.
 
 You only need to set the environment variables for the services you want to use. For example, if you only want to send data to Mixpanel and BigQuery, you only need to set the REQUIRED environment variables for those services.
 
@@ -85,11 +85,8 @@ You only need to set the environment variables for the services you want to use.
 #### [BIGQUERY] Required Environment Variables
 - `bigquery_project`: Your BigQuery project ID.
 - `bigquery_dataset`: Your BigQuery dataset ID.
-- `bigquery_service_account_email`: Your BigQuery service account email.
-- `bigquery_service_account_private_key`: Your BigQuery service account private key.
-- `bigquery_keyfile`: Path to your BigQuery keyfile.
 
-note: application default credentials **can** be used for authentication.
+note: application default credentials **can** be used for authentication; alternatively set `bigquery_keyfile` OR `bigquery_service_account_email` + `bigquery_service_account_private_key`.
 
 ##### optional bigquery environment variables
 - `pubsub_bad_topic`: if exists, any transient failures or failed inserts will be published on this topic.
@@ -132,20 +129,16 @@ if you want to use Snowpipe, you will need to provide the following additional e
 - `redshift_database`: Your Redshift database name.
 - `redshift_access_key_id`: Your Redshift access key ID.
 - `redshift_secret_access_key`: Your Redshift secret access key.
-- `redshift_session_token`: Your Redshift session token (optional).
 - `redshift_region`: Your Redshift region.
-- `redshift_schema_name`: Your Redshift schema name.
+- `redshift_schema_name`: Your Redshift schema name (defaults to `public`).
 
-note: redshift has a 100kb per request limit, using a smaller batch size is recommended.
+note: `redshift_session_token` is optional (for temporary credentials). redshift has a 100kb per request limit, using a smaller batch size is recommended.
 
 #### [GCS] Required Environment Variables
 - `gcs_project`: Your GCS project ID.
 - `gcs_bucket`: Your GCS bucket name.
-- `gcs_service_account`: Your GCS service account email.
-- `gcs_service_account_private_key`: Your GCS service account private key.
-- `gcs_keyfile`: Path to your GCS keyfile.
 
-note: application default credentials **can** be used for authentication.
+note: application default credentials **can** be used for authentication; alternatively set `gcs_keyfile` OR `gcs_service_account` + `gcs_service_account_private_key`.
 
 #### [S3] Required Environment Variables
 - `s3_bucket`: Your S3 bucket name.
@@ -155,9 +148,8 @@ note: application default credentials **can** be used for authentication.
 
 #### [AZURE] Required Environment Variables
 - `azure_account`: Your Azure account name.
-- `azure_key`: Your Azure account key.
 - `azure_container`: Your Azure container name.
-- `azure_connection_string`: Your Azure connection string (optional).
+- `azure_key` OR `azure_connection_string`: an account key or a connection string (one of the two is required).
 
 ## 🚀 Deployment
 
@@ -227,36 +219,21 @@ You should receive a response with the status of the request, and all the destin
 ```json
 [
 	{
-		"name": "azure",
-		"result": { ...	}
+		"name": "mixpanel",
+		"result": { "status": "success", "insertedRows": 1, "failedRows": 0 }
 	},
 	{
-		"name": "mixpanel",
-		"result": { ...	}
+		"name": "pubsub",
+		"result": { "status": "success", "messageId": "19693698892865384", "insertedRows": 1, "duration": 63 }
 	},
 	{
 		"name": "bigquery",
-		"result": { ...	}
-	},
-	{
-		"name": "s3",
-		"result": { ...	}
-	},
-	{
-		"name": "gcs",
-		"result": { ...	}
-	},
-	{
-		"name": "snowflake",
-		"result": { ...	},
-					
-	},
-	{
-		"name": "redshift",
-		"result": { ...	}
+		"result": { "status": "success", "insertedRows": 1, "failedRows": 0 }
 	}
 ]
 ```
+
+(one entry per destination in your `DESTINATIONS` list)
 
 ## Logging
 Logging behavior is controlled by the `NODE_ENV` environment variable:

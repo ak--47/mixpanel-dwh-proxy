@@ -8,7 +8,7 @@
 		"dev": "npm run prune && NODE_ENV=test nodemon --inspect --ignore tmp/ server.js",
 		"frontend": "npx serve ./demo/",
 		"test": "npm run typecheck && npm run test:unit",
-		"test:unit": "jest tests/unit.test.js tests/contract.test.js tests/routes.test.js tests/deadletter.test.js",
+		"test:unit": "jest tests/unit.test.js tests/contract.test.js tests/routes.test.js tests/deadletter.test.js tests/pubsub.test.js",
 		"test:int": "jest tests/int.test.js",
 		"test:e2e": "jest tests/e2e.test.js",
 		"typecheck": "tsc -p jsconfig.json",

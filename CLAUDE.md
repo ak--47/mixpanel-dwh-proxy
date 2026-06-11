@@ -5,7 +5,7 @@ Row-level Mixpanel proxy: receives Mixpanel SDK traffic (`/track`, `/engage`, `/
 ## Commands
 
 ```bash
-npm test            # typecheck + unit/contract/route/deadletter tests (no cloud creds needed)
+npm test            # typecheck + unit/contract/route/deadletter/pubsub tests (no cloud creds needed)
 npm run typecheck   # tsc -p jsconfig.json (checkJs over app/components/middleware)
 npm run test:unit   # just the offline jest suites
 npm run test:int    # per-destination integration tests against LIVE clouds (auto-skips destinations whose env vars are missing)
