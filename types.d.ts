@@ -292,7 +292,7 @@ export interface Destination {
   /** lowercase env var names that must be present when this destination is listed in DESTINATIONS */
   requiredEnvVars: string[];
   /** optional conditional rules (e.g. snowflake pipe⇒stage); returns error messages */
-  validateEnv?: (env: Record<string, string | undefined>) => string[];
+  validateEnv?: (env: Record<string, string | number | undefined>) => string[];
 }
 
 export type DestinationRegistry = {

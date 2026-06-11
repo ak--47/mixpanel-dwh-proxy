@@ -6,6 +6,10 @@
 /** @typedef {import('../types').Targets} Targets */
 /** @typedef {import('../types').EnvVars} Vars */
 
+// each destination declares its own requiredEnvVars (+ optional validateEnv
+// for conditional rules); see middleware/index.js + types.d.ts → Destination
+const registry = require('../middleware');
+
 const defaultEventsTableName = 'events';
 const defaultUsersTableName = 'users';
 const defaultGroupsTableName = 'groups';
@@ -62,172 +66,31 @@ function validate(PARAMS = { ...process.env }) {
 		TARGETS.push(defaultWarehouse);
 	}
 
-	// BIGQUERY
-	const {
-		bigquery_project = "",
-		bigquery_dataset = "",
-		bigquery_service_account_email = "",
-		bigquery_service_account_private_key = "",
-		bigquery_keyfile = ""
-	} = PARAMS;
-
-	// SNOWFLAKE
-	const {
-		snowflake_account = "",
-		snowflake_user = "",
-		snowflake_password = "",
-		snowflake_database = "",
-		snowflake_schema = "",
-		snowflake_warehouse = "",
-		snowflake_role = "",
-		snowflake_access_url = "",
-		snowflake_stage = "",
-		snowflake_pipe = "",
-		snowflake_private_key = "",
-		snowflake_region = "",
-		snowflake_provider = "",
-		snowflake_task = "",
-	} = PARAMS;
-
-	let {
-		snowflake_task_schedule = 3,
-	} = PARAMS;
-
-	// REDSHIFT
-	const {
-		redshift_workgroup = "",
-		redshift_database = "",
-		redshift_access_key_id = "",
-		redshift_secret_access_key = "",
-		redshift_session_token = "",
-		redshift_region = "",
-		redshift_schema_name = ""
-	} = PARAMS;
-
-	// MIXPANEL
-	const {
-		mixpanel_token = ""
-	} = PARAMS;
-
-	// GCS
-	const {
-		gcs_project = "",
-		gcs_bucket = "",
-		gcs_service_account = "",
-		gcs_service_account_private_key = "",
-		gcs_keyfile = ""
-	} = PARAMS;
-
-	// S3
-	const {
-		s3_bucket = "",
-		s3_region = "",
-		s3_access_key_id = "",
-		s3_secret_access_key = ""
-	} = PARAMS;
-
-	// AZURE BLOB STORAGE
-	const {
-		azure_account = "",
-		azure_key = "",
-		azure_container = "",
-		azure_connection_string = ""
-	} = PARAMS;
-
-	// PUBSUB
-	const {
-		pubsub_project = "",
-		pubsub_keyfile = "",
-		pubsub_service_account_email = "",
-		pubsub_service_account_private_key = "",
-		pubsub_good_topic = "",
-		pubsub_bad_topic = "",
-	} = PARAMS;
-
-	// bigquery
-	if (TARGETS.includes('BIGQUERY')) {
-		if (!bigquery_project) errors.push(new Error('bigquery_project is required'));
-		if (!bigquery_dataset) errors.push(new Error('bigquery_dataset is required'));
-	}
-
-	// pubsub
-	if (TARGETS.includes('PUBSUB')) {
-		if (!pubsub_project) errors.push(new Error('pubsub_project is required'));
-	}
-
-	// snowflake
-	if (TARGETS.includes('SNOWFLAKE')) {
-		if (!snowflake_account) errors.push(new Error('snowflake_account is required'));
-		if (!snowflake_user) errors.push(new Error('snowflake_user is required'));
-		if (!snowflake_password) errors.push(new Error('snowflake_password is required'));
-		if (!snowflake_database) errors.push(new Error('snowflake_database is required'));
-		if (!snowflake_schema) errors.push(new Error('snowflake_schema is required'));
-		if (!snowflake_warehouse) errors.push(new Error('snowflake_warehouse is required'));
-		if (!snowflake_role) errors.push(new Error('snowflake_role is required'));
-		if (!snowflake_access_url) errors.push(new Error('snowflake_access_url is required'));
-		if (snowflake_pipe && !snowflake_stage) errors.push(new Error('snowflake_stage is required to use pipelines'));
-		if (snowflake_pipe) {
-			if (!snowflake_private_key) errors.push(new Error('snowflake_private_key is required'));
-			if (!snowflake_region) errors.push(new Error('snowflake_region is required'));
+	// registry-driven validation: every listed destination must exist in the
+	// registry and have all of its requiredEnvVars set; destinations with
+	// conditional rules (snowflake, azure) also expose validateEnv()
+	for (const target of TARGETS) {
+		const destination = registry[target.toLowerCase()];
+		if (!destination) {
+			errors.push(new Error(`unknown destination: ${target} (supported: ${Object.keys(registry).join(', ')})`));
+			continue;
 		}
-
-		if (snowflake_task) {
-			if (!snowflake_task_schedule) errors.push(new Error('snowflake_task_schedule is required'));
-			if (typeof snowflake_task_schedule !== 'number') {
-				try {
-					snowflake_task_schedule = parseInt(snowflake_task_schedule);
-				}
-				catch (e) {
-					errors.push(new Error('snowflake_task_schedule must be a number'));
-				}
+		for (const envVar of destination.requiredEnvVars) {
+			if (!PARAMS[envVar]) errors.push(new Error(`${envVar} is required`));
+		}
+		if (destination.validateEnv) {
+			for (const message of destination.validateEnv(PARAMS)) {
+				errors.push(new Error(message));
 			}
 		}
-
-		// if (snowflake_pipe) {
-		// 	if (!snowflake_stage) errors.push(new Error('snowflake_stage is required to use pipelines'));
-		// }
-	}
-
-	// redshift
-	if (TARGETS.includes('REDSHIFT')) {
-		if (!redshift_workgroup) errors.push(new Error('redshift_workgroup is required'));
-		if (!redshift_database) errors.push(new Error('redshift_database is required'));
-		if (!redshift_access_key_id) errors.push(new Error('redshift_access_key_id is required'));
-		if (!redshift_secret_access_key) errors.push(new Error('redshift_secret_access_key is required'));
-		if (!redshift_region) errors.push(new Error('redshift_region is required'));
-		if (!redshift_schema_name) errors.push(new Error('redshift_schema_name is required'));
-	}
-
-	if (TARGETS.includes('MIXPANEL')) {
-		if (!mixpanel_token) {
-			//we don't actually care about this
-		}
-	}
-
-	if (TARGETS.includes('GCS')) {
-		if (!gcs_project) errors.push(new Error('gcs_project is required'));
-		if (!gcs_bucket) errors.push(new Error('gcs_bucket is required'));
-
-	}
-
-	if (TARGETS.includes('S3')) {
-		if (!s3_bucket) errors.push(new Error('s3_bucket is required'));
-		if (!s3_region) errors.push(new Error('s3_region is required'));
-		if (!s3_access_key_id) errors.push(new Error('s3_access_key_id is required'));
-		if (!s3_secret_access_key) errors.push(new Error('s3_secret_access_key is required'));
-	}
-
-	if (TARGETS.includes('AZURE')) {
-		if (!azure_account) errors.push(new Error('azure_account is required'));
-		if (!azure_connection_string && !azure_key) errors.push(new Error('azure_key or azure_connection_string is required'));
-		if (!azure_container) errors.push(new Error('azure_container is required'));
 	}
 
 	if (errors.length) {
-		errors.forEach(error => console.error(error.message));
-		// throw the first error
-		throw new Error(errors.shift()?.message || "unknown error");
-
+		// aggregate every problem into one error so a misconfigured boot
+		// reports the full fix, not just the first missing var
+		const message = errors.map(error => error.message).join('\n');
+		console.error(message);
+		throw new Error(message);
 	}
 
 	// now set env vars for each param, case insensitive

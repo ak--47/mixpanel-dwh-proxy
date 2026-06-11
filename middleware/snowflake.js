@@ -1095,7 +1095,7 @@ async function deleteAllFilesFromStage(stageName) {
 
 /**
  * conditional env rules beyond requiredEnvVars; called by validate.js at boot
- * @param {Record<string, string | undefined>} env
+ * @param {Record<string, string | number | undefined>} env
  * @returns {string[]} error messages
  */
 function validateEnv(env) {
@@ -1108,7 +1108,7 @@ function validateEnv(env) {
 	if (env.snowflake_task) {
 		const schedule = env.snowflake_task_schedule;
 		if (!schedule) errors.push('snowflake_task_schedule is required');
-		else if (isNaN(parseInt(schedule))) errors.push('snowflake_task_schedule must be a number');
+		else if (isNaN(parseInt(String(schedule)))) errors.push('snowflake_task_schedule must be a number');
 	}
 	return errors;
 }

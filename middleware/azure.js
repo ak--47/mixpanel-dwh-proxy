@@ -281,7 +281,7 @@ async function deleteAllFiles(tableNames) {
 /**
  * azure auth is either a connection string or an account key; requiredEnvVars
  * can't express "one of", so the rule lives here
- * @param {Record<string, string | undefined>} env
+ * @param {Record<string, string | number | undefined>} env
  * @returns {string[]} error messages
  */
 function validateEnv(env) {

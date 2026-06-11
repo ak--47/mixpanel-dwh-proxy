@@ -245,7 +245,35 @@ describe('VALIDATION', () => {
 
 	});
 
+	test('unknown destination throws', () => {
+		process.env = {
+			DESTINATIONS: 'BIGQUERY, FOOBAR',
+			bigquery_project: 'foo',
+			bigquery_dataset: 'bar'
+		};
 
+		expect(() => validate()).toThrow(/unknown destination: FOOBAR/i);
+	});
+
+	test('aggregates ALL missing vars in one error', () => {
+		process.env = {
+			DESTINATIONS: 'BIGQUERY'
+		};
+
+		// both missing vars must be reported at once, not just the first
+		expect(() => validate()).toThrow(/bigquery_project is required[\s\S]*bigquery_dataset is required/);
+	});
+
+	test('unlisted destinations are inert', () => {
+		process.env = {
+			DESTINATIONS: 'GCS',
+			gcs_project: 'foo',
+			gcs_bucket: 'bar'
+		};
+
+		// no snowflake/bigquery/etc vars set anywhere — must not throw
+		expect(() => validate()).not.toThrow();
+	});
 
 });
 
