@@ -22,7 +22,11 @@ export type IncomingData = MixpanelEvent[] | UserUpdate[] | GroupUpdate[];
 export type FlatData = FlatEvent[] | FlatUserUpdate[] | FlatGroupUpdate[];
 export type SchematizedData = SchematizedEvent[] | SchematizedUserUpdate[] | SchematizedGroupUpdate[];
 
-type MixpanelEvent = {
+export type EventBatch = MixpanelEvent[];
+export type UserBatch = UserUpdate[];
+export type GroupBatch = GroupUpdate[];
+
+export type MixpanelEvent = {
   event: string;
   properties: {
     //things we will schematize
@@ -64,16 +68,12 @@ type SchematizedEvent = FlatEvent & {
 
 type profileOperations = "$set" | "$set_once" | "$append" | "$delete" | "$union";
 
-type UserUpdate = {
+export type UserUpdate = {
   //will schematize
   $token: string;
   $distinct_id: string;
   $ip?: string;
-  //things we will not schematize and should be type JSON
-  [key in profileOperations]?: {
-    [key: string]: string; // Key-value pairs for group properties
-  };
-};
+} & Partial<Record<profileOperations, { [key: string]: string }>>; // operations ($set, $set_once, etc.) hold the properties
 
 type FlatUserUpdate = {
   //will schematize
@@ -91,16 +91,12 @@ type SchematizedUserUpdate = FlatUserUpdate & {
   };
 };
 
-type GroupUpdate = {
+export type GroupUpdate = {
   //will schematize
   $token: string;
   $group_key: string;
   $group_id: string;
-  //things we will not schematize and should be type JSON
-  [key in profileOperations]?: {
-    [key: string]: string;
-  };
-};
+} & Partial<Record<profileOperations, { [key: string]: string }>>; // operations ($set, $set_once, etc.) hold the properties
 
 type FlatGroupUpdate = {
   //will schematize
@@ -252,7 +248,6 @@ export type CommonVars = {
   BATCH_SIZE: number;
   MAX_RETRIES: number;
   DESTINATIONS: string;
-  MAX_RETRIES: number;
   FRONTEND_URL: string;
   QUEUE_MAX: number;
   QUEUE_INTERVAL: number;
@@ -260,7 +255,46 @@ export type CommonVars = {
   USERS_TABLE_NAME: string;
   GROUPS_TABLE_NAME: string;
   TIMEOUT: number;
-  [key: string]: string;
+  [key: string]: string | number;
 };
 
-export type EnvVars = BigQueryVars & SnowflakeVars & RedshiftVars & GCSVars & CommonVars;
+export type EnvVars = BigQueryVars &
+  SnowflakeVars &
+  RedshiftVars &
+  GCSVars &
+  S3Vars &
+  AzureVars &
+  PubSubVars &
+  MixpanelVars &
+  CommonVars;
+
+// ---- Destination contract ----
+// every module in middleware/ is a Destination: a callable send function
+// with init/drop lifecycle methods and a declaration of the env vars it
+// requires when listed in DESTINATIONS (used for fail-fast boot validation)
+export type DestinationName =
+  | "mixpanel"
+  | "bigquery"
+  | "pubsub"
+  | "snowflake"
+  | "redshift"
+  | "gcs"
+  | "s3"
+  | "azure";
+
+export interface Destination {
+  /** send a batch; called per-request from the fan-out in server.js */
+  (data: IncomingData | FlatData, type: Endpoints, tableNames: TableNames): Promise<InsertResult>;
+  /** idempotent; called fire-and-forget at boot and lazily on first send */
+  init: (tableNames: TableNames) => Promise<unknown> | unknown;
+  /** destructive; only reachable when NODE_ENV !== 'prod' */
+  drop: (tableNames: TableNames) => Promise<unknown> | unknown;
+  /** lowercase env var names that must be present when this destination is listed in DESTINATIONS */
+  requiredEnvVars: string[];
+  /** optional conditional rules (e.g. snowflake pipe⇒stage); returns error messages */
+  validateEnv?: (env: Record<string, string | undefined>) => string[];
+}
+
+export type DestinationRegistry = {
+  [name: string]: Destination;
+};

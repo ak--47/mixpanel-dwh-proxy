@@ -232,9 +232,9 @@ function validate(PARAMS = { ...process.env }) {
 
 	// now set env vars for each param, case insensitive
 	for (const key in PARAMS) {
-		process.env[key?.toLowerCase()] = PARAMS[key];
-		process.env[key?.toUpperCase()] = PARAMS[key];
-		process.env[key] = PARAMS[key];
+		process.env[key?.toLowerCase()] = String(PARAMS[key]);
+		process.env[key?.toUpperCase()] = String(PARAMS[key]);
+		process.env[key] = String(PARAMS[key]);
 	}
 
 	return PARAMS;
