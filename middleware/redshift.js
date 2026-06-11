@@ -318,9 +318,21 @@ async function dropTables(tableNames) {
 
 }
 
-main.drop = dropTables;
-main.init = initializeRedshift;
-module.exports = main;
+/** @type {import('../types').Destination} */
+const destination = Object.assign(main, {
+	init: initializeRedshift,
+	drop: dropTables,
+	requiredEnvVars: [
+		'redshift_workgroup',
+		'redshift_database',
+		'redshift_access_key_id',
+		'redshift_secret_access_key',
+		'redshift_region',
+		'redshift_schema_name',
+	],
+});
+
+module.exports = destination;
 
 
 //todo this doesn't work

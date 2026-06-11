@@ -123,6 +123,8 @@ async function initializeBigQuery(tableNames) {
 
 	// ! PUBSUB FALLBACK INITIALIZATION
 	if (pubsub_bad_topic) {
+		// @ts-ignore -- passes a string where init expects TableNames; works only because
+		// pubsub re-reads pubsub_bad_topic from process.env. removed when deadLetter lands.
 		const pubsubInit = await pubsub.init(pubsub_bad_topic);
 		isPubSubReady = true;
 		ready.push(isPubSubReady);
@@ -399,8 +401,13 @@ async function dropTables(tableNames) {
 
 }
 
-main.drop = dropTables;
-main.init = initializeBigQuery;
-module.exports = main;
+/** @type {import('../types').Destination} */
+const destination = Object.assign(main, {
+	init: initializeBigQuery,
+	drop: dropTables,
+	requiredEnvVars: ['bigquery_project', 'bigquery_dataset'],
+});
+
+module.exports = destination;
 
 

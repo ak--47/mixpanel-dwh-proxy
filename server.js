@@ -36,17 +36,9 @@ const { parseSDKData, flattenAndRenameForWarehouse, schematizeForWarehouse } = r
 // LOGGING
 const log = require('./components/logger');
 
-// MIDDLEWARE
-const bigquery = require('./middleware/bigquery');
-const pubsub = require('./middleware/pubsub');
-const snowflake = require('./middleware/snowflake');
-const redshift = require('./middleware/redshift');
-const mixpanel = require('./middleware/mixpanel');
-const gcs = require('./middleware/gcs');
-const s3 = require('./middleware/s3');
-const azure = require('./middleware/azure');
-const middleware = { bigquery, pubsub, snowflake, redshift, mixpanel, gcs, s3, azure };
-const middlewareList = Object.keys(middleware).map(m => m.toLowerCase());
+// DESTINATIONS (see middleware/index.js registry + types.d.ts → Destination contract)
+const registry = require('./middleware');
+const middlewareList = Object.keys(registry);
 
 
 // ENV VARS + CONFIG
@@ -127,8 +119,8 @@ switch (RUNTIME) {
 
 // in-use middleware + initialization
 const activeMiddleware = TARGETS
-	.filter(wh => middleware[wh.toLowerCase()])
-	.map(wh => ({ name: wh, api: middleware[wh.toLowerCase()] }));
+	.filter(wh => registry[wh.toLowerCase()])
+	.map(wh => ({ name: wh, api: registry[wh.toLowerCase()] }));
 
 for (const { name, api: middleware } of activeMiddleware) {
 	if (middleware.init) {

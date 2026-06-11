@@ -22,11 +22,13 @@ if (NODE_ENV === 'test') {
 /** @typedef {import('../types').TableNames} TopicNames */
 /** @typedef {Object} PubSubMessage */
 
-/** 
- * @typedef {Object} PublishResult 
- * @property {string} [status]
+/**
+ * @typedef {Object} PublishResult
+ * @property {string} status
  * @property {string} [messageId]
  * @property {number} [timestamp]
+ * @property {number} [duration]
+ * @property {number} [insertedRows]
  */
 
 // these vars should be cached and only run once when the server starts
@@ -237,8 +239,19 @@ async function dropTopics(topicNames) {
 	return { numTopicsDropped: topicsToDrop.length, topicsDropped: topicsToDrop };
 }
 
-main.drop = dropTopics;
-main.init = initializePubSub;
-main.publish = publishMessage;
+/**
+ * the Destination contract (see types.d.ts → Destination):
+ * a callable send function with init/drop lifecycle methods and a
+ * requiredEnvVars declaration used for fail-fast validation at boot.
+ * this module is the reference implementation of the contract.
+ * (publish is an extra: the dead-letter component uses it directly)
+ * @type {import('../types').Destination & { publish: typeof publishMessage }}
+ */
+const destination = Object.assign(main, {
+	init: initializePubSub,
+	drop: dropTopics,
+	publish: publishMessage,
+	requiredEnvVars: ['pubsub_project'],
+});
 
-module.exports = main;
+module.exports = destination;

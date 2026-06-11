@@ -66,11 +66,16 @@ function shortUrl(url) {
 	return new URL(url).pathname;
 }
 
-main.init = () => {
-	log(`[MIXPANEL] middleware initialized in ${REGION} region with base URL ${BASE_URL}`);
-};
-main.drop = () => {
-	log(`[MIXPANEL] tables cannot be dropped...0_o`);
-	return "nothing to drop";
-};
-module.exports = main;
+/** @type {import('../types').Destination} */
+const destination = Object.assign(main, {
+	init: () => {
+		log(`[MIXPANEL] middleware initialized in ${REGION} region with base URL ${BASE_URL}`);
+	},
+	drop: () => {
+		log(`[MIXPANEL] tables cannot be dropped...0_o`);
+		return "nothing to drop";
+	},
+	requiredEnvVars: [], // mixpanel_token is optional: the SDK can supply the token client-side
+});
+
+module.exports = destination;
